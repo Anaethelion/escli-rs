@@ -1,0 +1,24 @@
+[package]
+name = "escli"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "escli"
+path = "src/main.rs"
+
+[dependencies]
+staticcmds = { path = "staticcmds" }
+
+async-std = { workspace = true }
+clap = { workspace = true }
+clap_complete = { workspace = true }
+elasticsearch = { workspace = true }
+reqwest = { workspace = true }
+serde_json = { workspace = true }
+serde = { workspace = true }
+atty = { workspace = true }
+dotenv = { workspace = true }
+async-trait = { workspace = true }
+erased-serde = { workspace = true }
+color-print = { workspace = true }

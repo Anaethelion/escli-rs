@@ -1,0 +1,11 @@
+[package]
+name = "staticcmds"
+edition = "2024"
+
+[dependencies]
+clap = { workspace = true }
+elasticsearch = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+http = { workspace = true }

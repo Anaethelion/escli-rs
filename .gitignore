@@ -1,0 +1,4 @@
+.idea
+/target
+escli/src/*
+schema.json

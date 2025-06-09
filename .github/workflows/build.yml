@@ -1,0 +1,48 @@
+name: Build and Test CLI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        BUILD_TARGET: [release] # refers to a cargo profile
+        os: [ ubuntu-latest, macos-latest, windows-latest ]
+        include:
+          - os: ubuntu-latest
+            artifact-name: escli-linux
+            artifact-path: target/release/escli
+          - os: macos-latest
+            artifact-name: escli-macos
+            artifact-path: target/release/escli
+          - os: windows-latest
+            artifact-name: escli-windows
+            artifact-path: target\release\escli.exe
+    name: Build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      - name: Generate
+        run: cargo run -p generator --profile ${{ matrix.BUILD_TARGET }}
+      - name: Test
+        run: cargo test --profile ${{ matrix.BUILD_TARGET }}
+      - name: Build
+        run: cargo build -p escli --profile ${{ matrix.BUILD_TARGET }}
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact-name }}
+          path: ${{ matrix.artifact-path }}
