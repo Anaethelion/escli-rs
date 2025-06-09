@@ -70,6 +70,10 @@ Use `--help` to see available commands and options, `-h` for the short version.
 
 ### Dump
 
+```sh
+./escli utils dump <index>
+```
+
 ### Prerequisites
 - Rust (latest stable or nightly)
 - Elasticsearch cluster (local or remote)
