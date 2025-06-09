@@ -36,6 +36,7 @@ pub fn generate() -> Tokens {
         mod error;
         mod cmd;
 
+        use async_std::io;
         use clap::error::ErrorKind;
         use clap::{FromArgMatches as _, Parser};
         use elasticsearch::cert::CertificateValidation;
@@ -43,6 +44,8 @@ pub fn generate() -> Tokens {
         use elasticsearch::http::transport::{SingleNodeConnectionPool, TransportBuilder};
         use dotenv::dotenv;
         use async_std::process::exit;
+        use async_std::{eprintln};
+        use async_std::io::{WriteExt};
 
         // Represents the configuration options for the CLI application.
         //
@@ -146,12 +149,21 @@ pub fn generate() -> Tokens {
             }
             match res {
                 Ok(res) => {
-                    let body = res.text().await;
-                    println!("{}", body?);
+                    let body = res.text().await?;
+                    let mut stdout = io::stdout();
+                    if let Err(e) = stdout.write_all(body.as_bytes()).await {
+                        if e.kind() != std::io::ErrorKind::BrokenPipe {
+                            let _ = async_std::io::stderr().write_all(format!("Error writing to stdout: {}\n", e).as_bytes()).await;
+                        }
+                    }
                     Ok(())
                 }
                 Err(err) => {
-                    eprintln!("{}", error::EscliError::from(err));
+                    if let Err(e) = async_std::io::stderr().write_all(format!("{}\n", error::EscliError::from(err)).as_bytes()).await {
+                        if e.kind() != std::io::ErrorKind::BrokenPipe {
+                            // do nothing, we are already exiting
+                        }
+                    }
                     exit(1);
                 }
             }
