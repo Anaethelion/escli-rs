@@ -84,6 +84,12 @@ cargo run -p generator --release
 cargo build -p escli --release
 ```
 
+or
+
+```sh
+make release
+```
+
 ### Usage
 ```sh
 ./escli --help
