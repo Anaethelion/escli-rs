@@ -44,7 +44,6 @@ pub fn generate() -> Tokens {
         use elasticsearch::http::transport::{SingleNodeConnectionPool, TransportBuilder};
         use dotenv::dotenv;
         use async_std::process::exit;
-        use async_std::{eprintln};
         use async_std::io::{WriteExt};
 
         // Represents the configuration options for the CLI application.
@@ -149,20 +148,32 @@ pub fn generate() -> Tokens {
             }
             match res {
                 Ok(res) => {
+                    let istatus_code = res.status_code().as_u16() as i32;
                     let body = res.text().await?;
                     let mut stdout = io::stdout();
-                    if let Err(e) = stdout.write_all(body.as_bytes()).await {
+                    let write_result = if body.is_empty() {
+                        stdout
+                            .write_all(format!("{istatus_code}\n").as_bytes())
+                            .await
+                    } else {
+                        stdout.write_all(body.as_bytes()).await
+                    };
+                    if let Err(e) = write_result {
                         if e.kind() != std::io::ErrorKind::BrokenPipe {
-                            let _ = async_std::io::stderr().write_all(format!("Error writing to stdout: {}\n", e).as_bytes()).await;
+                            async_std::io::stderr()
+                                .write_all(format!("Error writing to stdout: {e}").as_bytes())
+                                .await
+                                .ok();
                         }
                     }
-                    Ok(())
+                    exit(0);
                 }
                 Err(err) => {
-                    if let Err(e) = async_std::io::stderr().write_all(format!("{}\n", error::EscliError::from(err)).as_bytes()).await {
-                        if e.kind() != std::io::ErrorKind::BrokenPipe {
-                            // do nothing, we are already exiting
-                        }
+                    if let Err(e) = async_std::io::stderr()
+                        .write_all(format!("{}", error::EscliError::from(err)).as_bytes())
+                        .await
+                    {
+                        if e.kind() != std::io::ErrorKind::BrokenPipe {}
                     }
                     exit(1);
                 }
