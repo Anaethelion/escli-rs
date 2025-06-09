@@ -119,7 +119,8 @@ pub(crate) fn generate(endpoints: Vec<endpoint::Endpoint>) -> Tokens {
                 let after_help: String = format!(
             "{}{}",
             after_help_heading,
-            $("r#\"./escli info
+            $("r#\"
+./escli info
 ./escli bulk --input <file.ndjson>
 ./escli search <<< '{\"query\": {\"match_all\": {}}}'
 ./escli esql query --format txt <<< 'FROM <index> LIMIT 10'
