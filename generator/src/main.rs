@@ -139,10 +139,7 @@ async fn main() -> Result<(), Error> {
     // Generate main CLI and error files
     fs::write(
         binpath.join("main.rs"),
-        format!(
-            "{LICENSE}\n{}",
-            cli::generate().to_string()?
-        ),
+        format!("{LICENSE}\n{}", cli::generate().to_string()?),
     )
     .await?;
     fs::write(

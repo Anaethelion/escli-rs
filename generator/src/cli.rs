@@ -37,14 +37,14 @@ pub fn generate() -> Tokens {
         mod cmd;
 
         use async_std::io;
+        use async_std::io::WriteExt;
+        use async_std::process::exit;
         use clap::error::ErrorKind;
-        use clap::{FromArgMatches as _, Parser};
+        use clap::{FromArgMatches as _, Parser, ArgAction};
+        use dotenv::dotenv;
         use elasticsearch::cert::CertificateValidation;
         use elasticsearch::http::Url;
         use elasticsearch::http::transport::{SingleNodeConnectionPool, TransportBuilder};
-        use dotenv::dotenv;
-        use async_std::process::exit;
-        use async_std::io::{WriteExt};
 
         // Represents the configuration options for the CLI application.
         //
@@ -70,6 +70,9 @@ pub fn generate() -> Tokens {
 
             #[clap(long, env = "ESCLI_INSECURE", help = "Disable TLS certificate validation (insecure)", long_help = "Disable TLS certificate validation (insecure)")]
             insecure: Option<bool>,
+
+            #[clap(action=ArgAction::SetTrue, default_value_t=false, short, long, env = "ESCLI_VERBOSE", help = "Enable verbose output", long_help = "Enable verbose output for debugging purposes. This will print additional information about the requests and responses.")]
+            verbose: bool,
         }
 
         // Entry point for the CLI application.
@@ -83,7 +86,6 @@ pub fn generate() -> Tokens {
         #[async_std::main]
         async fn main() -> Result<(), error::EscliError> {
             clap_complete::CompleteEnv::with_factory(cmd::command).complete();
-
             dotenv().ok();
 
             let mut cmd = cmd::command();
@@ -131,12 +133,28 @@ pub fn generate() -> Tokens {
                 _ => (),
             }
 
+            let mut stdout = io::stdout();
+            let mut stderr = io::stderr();
+
             let res: Result<elasticsearch::http::response::Response, elasticsearch::Error>;
             // Check if the subcommand is "utils" to run static commands
             if matches.subcommand_matches("utils").is_some() {
                 res = staticcmds::run_command(cmd, matches.subcommand().unwrap().1, transport, config.timeout).await;
             } else {
                 let args = cmd::dispatch(&mut cmd, &matches).await?;
+                if config.verbose {
+                    let qs = serde_urlencoded::to_string(&args.query_string).unwrap_or_default();
+                    stderr.write(format!("Request: {:?} {}?{}\n", args.method, args.path, qs).as_bytes()).await.ok();
+
+                    if !&args.headers.is_empty() {
+                        stderr.write("Headers:\n".as_bytes()).await.ok();
+                        for (k, v) in &args.headers {
+                            stderr.write(format!("{}: {:?}\n", k, v).as_bytes()).await.ok();
+                        }
+                    }
+                    stderr.write("\n".as_bytes()).await.ok();
+                    stderr.flush().await.ok();
+                }
                 res = transport.send(
                     args.method,
                     &args.path,
@@ -146,27 +164,51 @@ pub fn generate() -> Tokens {
                     config.timeout,
                 ).await;
             }
+
             match res {
                 Ok(res) => {
                     let istatus_code = res.status_code().as_u16() as i32;
+                    let headers = res.headers().clone();
                     let body = res.text().await?;
-                    let mut stdout = io::stdout();
-                    let write_result = if body.is_empty() {
-                        stdout
-                            .write_all(format!("{istatus_code}\n").as_bytes())
-                            .await
-                    } else {
-                        stdout.write_all(body.as_bytes()).await
-                    };
-                    if let Err(e) = write_result {
-                        if e.kind() != std::io::ErrorKind::BrokenPipe {
-                            async_std::io::stderr()
-                                .write_all(format!("Error writing to stdout: {e}").as_bytes())
-                                .await
-                                .ok();
+
+                    if config.verbose {
+                        stderr.write(format!("Response: {}\n", istatus_code).as_bytes()).await.ok();
+                        if !headers.is_empty() {
+                            stderr.write("Headers:\n".as_bytes()).await.ok();
+                            for (k, v) in headers {
+                                if let Some(k) = k {
+                                    stderr.write(format!("{}: {:?}\n", k, v).as_bytes()).await.ok();
+                                }
+                            }
                         }
+                        stderr.write("\n".as_bytes()).await.ok();
+                        stderr.flush().await.ok();
                     }
-                    exit(0);
+
+                    // Is status code 2xx or 3xx, write the body to stdout
+                    // Otherwise, write the body to stderr
+                    if (200..400).contains(&istatus_code) {
+                        if let Err(e) = stdout.write_all(body.as_bytes()).await {
+                            if e.kind() != io::ErrorKind::BrokenPipe {
+                                async_std::io::stderr()
+                                    .write_all(format!("Error writing to stdout: {e}").as_bytes())
+                                    .await
+                                    .ok();
+                            }
+                        }
+                        exit(0);
+                    } else {
+                        if let Err(e) = stderr.write_all(body.as_bytes()).await {
+                            if e.kind() != io::ErrorKind::BrokenPipe {
+                                async_std::io::stderr()
+                                    .write_all(format!("Error writing to stderr: {e}").as_bytes())
+                                    .await
+                                    .ok();
+                            }
+                        }
+                        println!("toto");
+                        exit(1);
+                    }
                 }
                 Err(err) => {
                     if let Err(e) = async_std::io::stderr()

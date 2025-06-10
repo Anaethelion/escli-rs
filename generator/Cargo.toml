@@ -5,11 +5,11 @@ edition = "2024"
 
 [dependencies]
 clients_schema = { workspace = true }
-async-std = { workspace = true }
 anyhow = { workspace = true }
+async-std = { workspace = true }
 clap = { workspace = true }
-serde_json = { workspace = true }
-genco = { workspace = true }
-reqwest = { workspace = true }
 convert_case = { workspace = true }
+genco = { workspace = true }
 regex = { workspace = true }
+reqwest = { workspace = true }
+serde_json = { workspace = true }
