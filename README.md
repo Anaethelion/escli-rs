@@ -45,34 +45,34 @@ ESCLI_PASSWORD=yourpassword
 Use `--help` to see available commands and options, `-h` for the short version.
 
 ### Info
-
 ```sh
 ./escli info
 ```
+![info.gif](tapes/info.gif)
 
 ### Bulk
-
 ```sh
 ./escli bulk --input payload.json
 ```
+![bulk.gif](tapes/bulk.gif)
 
 ### Search
-
 ```sh
 ./escli search --index my_index <<< '{"query": {"match_all": {}}}'
 ``` 
+![search.gif](tapes/search.gif)
 
 ### ES|QL
-
 ```sh
 ./escli esql query --format txt <<< '{"query": "FROM <index> | LIMIT 1"}'
 ```
+![esql.gif](tapes/esql.gif)
 
 ### Dump
-
 ```sh
 ./escli utils dump <index>
 ```
+![dump.gif](tapes/dump.gif)
 
 ### Prerequisites
 - Rust (latest stable or nightly)
