@@ -93,7 +93,7 @@ pub(crate) fn generate(endpoints: Vec<endpoint::Endpoint>) -> Tokens {
                             }
                         }
                     } else {
-                        if let Some(namespace_command) = cmd.find_subcommand_mut("core") {
+                        if let Some(namespace_command) = cmd.find_subcommand_mut(command) {
                             let _ = namespace_command.print_help();
                         }
                         println!();
