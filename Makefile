@@ -54,6 +54,6 @@ release-musl: ## Build release for testing
 
 ##@ Docker
 #------------------------------------------------------------------------------
-docker: ## Build Docker image
-	docker buildx build --platform linux/amd64 -t escli:latest --output=type=registry .
+docker-image: ## Build Docker image
+	docker build -t escli:latest .
 #------------------------------------------------------------------------------

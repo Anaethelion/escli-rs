@@ -103,6 +103,39 @@ COMPLETE=<shell> ./escli
 
 ---
 
+## Running escli with Docker
+
+You can build and run the escli container locally. By default, the Dockerfile builds for amd64/musl, which works on most modern PCs.
+
+### Build the Docker image (local, single-arch)
+
+```sh
+docker build -t escli:latest .
+```
+
+### Run escli in a container
+
+```sh
+docker run --rm -it escli:latest --help
+```
+
+You can also mount your .env file or configuration as needed:
+
+```sh
+docker run --rm -it -v $(pwd)/.env:/.env escli:latest info
+```
+
+Alternatively, you can propagate environment variables from your host directly into the container. For example, if you have ESCLI_URL and ESCLI_API_KEY set in your shell, simply run:
+
+```sh
+docker run --rm -it --env ESCLI_URL --env ESCLI_API_KEY escli:latest info
+```
+
+This will forward the values of those environment variables from your host to the container.
+
+> **Note:** Advanced users can build for arm64 by passing the appropriate build arguments, but this requires an arm64 host or a cross-compilation setup with the necessary toolchains. See the Dockerfile for details.
+---
+
 ## Workspace Structure
 - `escli/` - Main CLI application
 - `generator/` - Code generation utilities for CLI and API bindings
