@@ -206,7 +206,6 @@ pub fn generate() -> Tokens {
                                     .ok();
                             }
                         }
-                        println!("toto");
                         exit(1);
                     }
                 }
