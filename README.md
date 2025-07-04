@@ -113,27 +113,38 @@ You can build and run the escli container locally. By default, the Dockerfile bu
 docker build -t escli:latest .
 ```
 
-### Run escli in a container
+### Recommended: Use an alias for escli via Docker
+
+You can set up an alias to run escli as a Docker container, passing environment variables from your host and using the host network:
+
+```sh
+alias escli="docker run --network host -i --rm -e ESCLI_URL -e ESCLI_API_KEY ghcr.io/anaethelion/escli:latest"
+```
+
+Then, set your environment variables on the host and use escli as if it were installed locally:
+
+```sh
+export ESCLI_URL=https://localhost:9200
+export ESCLI_API_KEY=your_api_key_here
+escli info
+```
+
+This approach makes it easy to use escli in Docker with your local environment and network settings.
+
+### Run escli in a container (manual)
+
+You can also run escli directly with Docker:
 
 ```sh
 docker run --rm -it escli:latest --help
 ```
 
-You can also mount your .env file or configuration as needed:
+Or mount your .env file if needed:
 
 ```sh
 docker run --rm -it -v $(pwd)/.env:/.env escli:latest info
 ```
 
-Alternatively, you can propagate environment variables from your host directly into the container. For example, if you have ESCLI_URL and ESCLI_API_KEY set in your shell, simply run:
-
-```sh
-docker run --rm -it --env ESCLI_URL --env ESCLI_API_KEY escli:latest info
-```
-
-This will forward the values of those environment variables from your host to the container.
-
-> **Note:** Advanced users can build for arm64 by passing the appropriate build arguments, but this requires an arm64 host or a cross-compilation setup with the necessary toolchains. See the Dockerfile for details.
 ---
 
 ## Workspace Structure
