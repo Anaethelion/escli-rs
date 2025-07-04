@@ -51,3 +51,9 @@ release: generate ## Build release
 release-musl: ## Build release for testing
 	cargo build -r -p escli --target x86_64-unknown-linux-musl
 #------------------------------------------------------------------------------
+
+##@ Docker
+#------------------------------------------------------------------------------
+docker-image: ## Build Docker image
+	docker build -t escli:latest .
+#------------------------------------------------------------------------------
