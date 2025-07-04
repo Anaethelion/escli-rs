@@ -133,7 +133,6 @@ docker run --rm -it --env ESCLI_URL --env ESCLI_API_KEY escli:latest info
 
 This will forward the values of those environment variables from your host to the container.
 
-> **Note:** Advanced users can build for arm64 by passing the appropriate build arguments, but this requires an arm64 host or a cross-compilation setup with the necessary toolchains. See the Dockerfile for details.
 ---
 
 ## Workspace Structure
