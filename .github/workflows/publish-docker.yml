@@ -24,8 +24,8 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       # Build for amd64
-      - name: Build and push Docker image (amd64)
-        uses: docker/build-push-action@v5
+      - name: Build amd64 image
+        uses: docker/build-push-action@v6
         with:
           context: .
           push: true
@@ -35,10 +35,11 @@ jobs:
           tags: |
             ghcr.io/anaethelion/escli:latest-amd64
             ghcr.io/anaethelion/escli:${{ github.sha }}-amd64
+          outputs: type=registry
 
       # Build for arm64
-      - name: Build and push Docker image (arm64)
-        uses: docker/build-push-action@v5
+      - name: Build arm64 image
+        uses: docker/build-push-action@v6
         with:
           context: .
           push: true
@@ -48,14 +49,13 @@ jobs:
           tags: |
             ghcr.io/anaethelion/escli:latest-arm64
             ghcr.io/anaethelion/escli:${{ github.sha }}-arm64
+          outputs: type=registry
 
       # Create and push multi-arch manifest
       - name: Create and push multi-arch manifest
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          push: true
-          platforms: linux/amd64,linux/arm64
-          tags: |
-            ghcr.io/anaethelion/escli:latest
-            ghcr.io/anaethelion/escli:${{ github.sha }}
+        run: |
+          docker buildx imagetools create \
+            -t ghcr.io/anaethelion/escli:latest \
+            -t ghcr.io/anaethelion/escli:${{ github.sha }} \
+            ghcr.io/anaethelion/escli:latest-amd64 \
+            ghcr.io/anaethelion/escli:latest-arm64
