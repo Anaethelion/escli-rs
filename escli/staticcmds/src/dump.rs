@@ -61,9 +61,23 @@ struct PontInTime {
 }
 
 #[derive(Deserialize, Debug)]
+#[serde(untagged)]
+enum PointInTimeVariant {
+    Success(PontInTime),
+    Error(Box<ElasticsearchError>),
+}
+
+#[derive(Deserialize, Debug)]
 struct SearchResult {
     pit_id: String,
     hits: Hits,
+}
+
+#[derive(Deserialize, Debug)]
+#[serde(untagged)]
+enum SearchResultsVariant {
+    Success(SearchResult),
+    Error(Box<ElasticsearchError>),
 }
 
 #[derive(Deserialize, Debug)]
@@ -96,6 +110,49 @@ impl Write for Output {
             Output::File(f) => f.flush(),
         }
     }
+}
+
+#[derive(Deserialize, Debug)]
+#[allow(dead_code)]
+struct CausedBy {
+    r#type: String,
+    reason: String,
+    caused_by: RootCause,
+}
+
+#[derive(Deserialize, Debug)]
+#[allow(dead_code)]
+struct FailedShard {
+    shard: i64,
+    index: String,
+    node: String,
+    reason: RootCause,
+}
+
+#[derive(Deserialize, Debug)]
+#[allow(dead_code)]
+struct RootCause {
+    r#type: String,
+    reason: String,
+}
+
+#[derive(Deserialize, Debug)]
+#[allow(dead_code)]
+struct EsError {
+    root_cause: Vec<RootCause>,
+    r#type: String,
+    reason: String,
+    phase: String,
+    grouped: bool,
+    failed_shards: Vec<FailedShard>,
+    caused_by: CausedBy,
+}
+
+#[derive(Deserialize, Debug)]
+#[allow(dead_code)]
+struct ElasticsearchError {
+    error: EsError,
+    status: i64,
 }
 
 impl Dump {
@@ -137,7 +194,15 @@ impl Dump {
 
         let mut output = match self.output {
             Some(ref path) => {
-                let file = OpenOptions::new().append(true).create(true).open(path)?;
+                let file = OpenOptions::new()
+                    .create(true)
+                    .write(true)
+                    .truncate(true)
+                    .open(path)
+                    .map_err(|e| {
+                        eprintln!("Failed to open output file {:?}: {}", path, e);
+                        e
+                    })?;
                 Output::File(file)
             }
             None => Output::Memory(BufWriter::new(Vec::new())),
@@ -161,7 +226,13 @@ impl Dump {
                 continue;
             }
 
-            let initial_pit = pit_response.json::<PontInTime>().await?;
+            let initial_pit = match pit_response.json::<PointInTimeVariant>().await? {
+                PointInTimeVariant::Success(pit) => pit,
+                PointInTimeVariant::Error(err) => {
+                    eprintln!("Error opening PIT for index '{}': {:?}", index, err);
+                    continue;
+                }
+            };
 
             let initial_search = client
                 .search(SearchParts::None)
@@ -174,7 +245,17 @@ impl Dump {
                 .send()
                 .await?;
 
-            let initial_documents = initial_search.json::<SearchResult>().await?;
+            let initial_documents = match initial_search.json::<SearchResultsVariant>().await? {
+                SearchResultsVariant::Success(docs) => docs,
+                SearchResultsVariant::Error(err) => {
+                    eprintln!(
+                        "Error during initial search for index '{}': {:?}",
+                        index, err
+                    );
+                    continue;
+                }
+            };
+
             persist_ndjson(&initial_documents, index, &mut output)?;
 
             let mut next_pit = initial_documents.pit_id;
@@ -199,14 +280,20 @@ impl Dump {
                     .body(payload)
                     .send()
                     .await?;
-                let pit_json = search_response.text().await?;
-                let documents: SearchResult = serde_json::from_str(&pit_json).map_err(|e| {
-                    eprintln!("Failed to parse response: {e}\nRaw JSON: {pit_json}");
-                    elasticsearch::Error::from(e)
-                })?;
+
+                let documents: SearchResult =
+                    match search_response.json::<SearchResultsVariant>().await? {
+                        SearchResultsVariant::Success(docs) => docs,
+                        SearchResultsVariant::Error(err) => {
+                            eprintln!("Error during search after for index '{}': {:?}", index, err);
+                            break;
+                        }
+                    };
 
                 if documents.hits.hits.is_empty() {
                     break;
+                } else {
+                    persist_ndjson(&documents, index, &mut output)?;
                 }
 
                 next_pit = documents.pit_id;
@@ -263,7 +350,6 @@ fn persist_ndjson(
     writer.flush()?;
     Ok(())
 }
-
 
 #[cfg(test)]
 mod tests {
