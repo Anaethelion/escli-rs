@@ -249,13 +249,6 @@ impl Dump {
 /// This function will return an error if writing to the output fails or if serializing
 /// the document source to JSON fails.
 ///
-/// # Example
-///
-/// ```rust
-/// let result = SearchResult { /* populated with data */ };
-/// let mut output = BufWriter::new(Vec::new());
-/// persist_ndjson(&result, "my_index", &mut output)?;
-/// ```
 fn persist_ndjson(
     result: &SearchResult,
     index: &str,
