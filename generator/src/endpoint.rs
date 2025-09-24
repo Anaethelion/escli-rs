@@ -250,7 +250,7 @@ impl Endpoint {
     // - Updates the `query_parameters` field of the `Endpoint` struct.
     pub fn populate_query_parameters(&mut self, model: &IndexedModel) {
         if let Some(req) = self.request(model) {
-            let mut query_parameters = req
+            let mut query_parameters: Vec<Field> = req
                 .query
                 .iter()
                 .filter_map(|p| {
@@ -740,13 +740,13 @@ impl Endpoint {
                     #[derive(serde::Serialize)]
                     struct Q {
                         $(for field in &self.query_parameters =>
-                            $(&field.name()): $(&field.typ()),$['\r']
+                            $(&field.original_field_name()): $(&field.typ()),$['\r']
                         )
                     }
 
                     let q = Q {
                         $(for field in &self.query_parameters =>
-                            $(&field.name()): self.$(&field.name())$(&field.clone_candidate()),$['\r']
+                            $(&field.original_field_name()): self.$(&field.name())$(&field.clone_candidate()),$['\r']
                         )
                     };
 

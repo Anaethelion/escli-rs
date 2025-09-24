@@ -54,11 +54,7 @@ impl Field {
         ty: String,
         default_value: Option<String>,
     ) -> Self {
-        let name = if name == "type" {
-            "ty".to_string()
-        } else {
-            name
-        };
+        let name = Self::sanitize_field_name(&name);
 
         let description = if description.is_empty() {
             "".to_string()
@@ -102,6 +98,25 @@ impl Field {
         self.name.clone()
     }
 
+    fn sanitize_field_name(name: &str) -> String {
+        match name {
+            "type" => "ty".to_string(),
+            "help" => "help_".to_string(),
+            "h" => "h_".to_string(),
+            // Add more reserved words as needed
+            _ => name.to_string(),
+        }
+    }
+
+    pub(crate) fn original_field_name(&self) -> String {
+        match self.name.as_str() {
+            "ty" => "r#type".to_string(),
+            "help_" => "help".to_string(),
+            "h_" => "h".to_string(),
+            _ => self.name.to_string(),
+        }
+    }
+
     // Returns if the field is required.
     pub fn required(&self) -> bool {
         self.required
@@ -125,14 +140,15 @@ impl Field {
     pub fn arg(&self) -> Tokens {
         let short_help = self.short_help().escape_default().to_string();
         let long_help = self.long_help().escape_default().to_string();
+        let name = self.name.escape_default().to_string();
 
         let base_quote = |action: Option<&str>| match action {
             Some(action) => quote! {
-                #[arg(long, help = $(quoted(&short_help)), long_help = $(quoted(&long_help)), action=$(action))]
+                #[arg(long($(quoted(&name))), help = $(quoted(&short_help)), long_help = $(quoted(&long_help)), action=$(action))]
                 $(&self.name): $(&self.typ()),$['\r']
             },
             None => quote! {
-                #[arg(long, help = $(quoted(&short_help)), long_help = $(quoted(&long_help)))]
+                #[arg(long($(quoted(&name))), help = $(quoted(&short_help)), long_help = $(quoted(&long_help)))]
                 $(&self.name): $(&self.typ()),$['\r']
             },
         };
