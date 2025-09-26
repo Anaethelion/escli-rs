@@ -268,7 +268,7 @@ mod tests {
         let tokens = field.arg().to_string().unwrap_or_default();
         assert!(
             tokens.contains(
-                "#[arg(long, help = \"A boolean flag.\", long_help = \"A boolean flag.\")]"
+                "#[arg(long(\"flag\"), help = \"A boolean flag.\", long_help = \"A boolean flag.\")]"
             )
         );
         assert!(tokens.contains("flag: bool,"));
@@ -303,7 +303,7 @@ mod tests {
         };
         let tokens = field.arg().to_string().unwrap_or_default();
         assert!(tokens.contains(
-            "#[arg(long, help = \"An optional value.\", long_help = \"An optional value.\")]"
+            "#[arg(long(\"optional_value\"), help = \"An optional value.\", long_help = \"An optional value.\")] optional_value: Option<String>,"
         ));
         assert!(tokens.contains("optional_value: Option<String>,"));
     }
