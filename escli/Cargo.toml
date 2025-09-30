@@ -10,7 +10,6 @@ path = "src/main.rs"
 [dependencies]
 staticcmds = { path = "staticcmds" }
 
-async-std = { workspace = true }
 async-trait = { workspace = true }
 atty = { workspace = true }
 clap = { workspace = true }
@@ -23,3 +22,4 @@ reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_urlencoded = { workspace = true }
+tokio = { workspace = true }
