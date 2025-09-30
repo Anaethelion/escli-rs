@@ -31,9 +31,9 @@ mod namespace;
 mod path_parameter;
 
 use anyhow::Error;
-use async_std::fs;
-use async_std::fs::{OpenOptions, read_to_string};
-use async_std::io::{ReadExt, SeekExt, WriteExt};
+use tokio::fs;
+use tokio::fs::{OpenOptions, read_to_string};
+use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 use clap::{CommandFactory, Parser};
 use clients_schema::IndexedModel;
 use std::collections::HashSet;
@@ -78,7 +78,7 @@ static LICENSE: &str = r#"// Licensed to Elasticsearch B.V. under one or more co
 // # Returns
 //
 // A `Result` indicating success or failure.
-#[async_std::main]
+#[tokio::main]
 async fn main() -> Result<(), Error> {
     // Parse CLI options
     let options = Options::command().get_matches();

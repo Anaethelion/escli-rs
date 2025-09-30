@@ -39,10 +39,10 @@ impl NamespaceFileHeader {
     // # Returns
     //
     // An `async_std::io::Result<()>` indicating success or failure.
-    pub async fn write_to<W: async_std::io::WriteExt + Unpin>(
+    pub async fn write_to<W: tokio::io::AsyncWriteExt + Unpin>(
         &self,
         mut writer: W,
-    ) -> async_std::io::Result<()> {
+    ) -> tokio::io::Result<()> {
         // Write common imports to the writer.
         writer
             .write_all(
