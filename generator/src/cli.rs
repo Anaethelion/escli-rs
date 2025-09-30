@@ -36,9 +36,9 @@ pub fn generate() -> Tokens {
         mod error;
         mod cmd;
 
-        use async_std::io;
-        use async_std::io::WriteExt;
-        use async_std::process::exit;
+        use tokio::io;
+        use tokio::io::AsyncWriteExt;
+        use tokio::process::exit;
         use clap::error::ErrorKind;
         use clap::{FromArgMatches as _, Parser, ArgAction};
         use dotenv::dotenv;
@@ -83,7 +83,7 @@ pub fn generate() -> Tokens {
         // # Returns
         //
         // A `Result` indicating success or failure.
-        #[async_std::main]
+        #[tokio::main]
         async fn main() -> Result<(), error::EscliError> {
             clap_complete::CompleteEnv::with_factory(cmd::command).complete();
             dotenv().ok();
@@ -190,33 +190,33 @@ pub fn generate() -> Tokens {
                     if (200..400).contains(&istatus_code) {
                         if let Err(e) = stdout.write_all(body.as_bytes()).await {
                             if e.kind() != io::ErrorKind::BrokenPipe {
-                                async_std::io::stderr()
+                                tokio::io::stderr()
                                     .write_all(format!("Error writing to stdout: {e}").as_bytes())
                                     .await
                                     .ok();
                             }
                         }
-                        exit(0);
+                        std::process::exit(0);
                     } else {
                         if let Err(e) = stderr.write_all(body.as_bytes()).await {
                             if e.kind() != io::ErrorKind::BrokenPipe {
-                                async_std::io::stderr()
+                                tokio::io::stderr()
                                     .write_all(format!("Error writing to stderr: {e}").as_bytes())
                                     .await
                                     .ok();
                             }
                         }
-                        exit(1);
+                        std::process::exit(1);
                     }
                 }
                 Err(err) => {
-                    if let Err(e) = async_std::io::stderr()
+                    if let Err(e) = tokio::io::stderr()
                         .write_all(format!("{}", error::EscliError::from(err)).as_bytes())
                         .await
                     {
                         if e.kind() != std::io::ErrorKind::BrokenPipe {}
                     }
-                    exit(1);
+                    std::process::exit(1);
                 }
             }
         }
