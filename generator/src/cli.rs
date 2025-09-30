@@ -38,7 +38,6 @@ pub fn generate() -> Tokens {
 
         use tokio::io;
         use tokio::io::AsyncWriteExt;
-        use tokio::process::exit;
         use clap::error::ErrorKind;
         use clap::{FromArgMatches as _, Parser, ArgAction};
         use dotenv::dotenv;
