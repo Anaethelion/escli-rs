@@ -34,15 +34,15 @@ impl NamespaceFileHeader {
     //
     // # Arguments
     //
-    // * `writer` - A mutable reference to an object implementing `async_std::io::WriteExt` and `Unpin`.
+    // * `writer` - A mutable reference to an object implementing `tokio::io::AsyncWriteExt` and `Unpin`.
     //
     // # Returns
     //
-    // An `async_std::io::Result<()>` indicating success or failure.
-    pub async fn write_to<W: async_std::io::WriteExt + Unpin>(
+    // An `tokio::io::Result<()>` indicating success or failure.
+    pub async fn write_to<W: tokio::io::AsyncWriteExt + Unpin>(
         &self,
         mut writer: W,
-    ) -> async_std::io::Result<()> {
+    ) -> tokio::io::Result<()> {
         // Write common imports to the writer.
         writer
             .write_all(
@@ -58,9 +58,9 @@ use elasticsearch::http::headers::HeaderMap;
             writer
                 .write_all(
                     b"
-use async_std::fs::File;
-use async_std::io;
-use async_std::io::{BufReader, ReadExt};
+use tokio::fs::File;
+use tokio::io;
+use tokio::io::{BufReader, AsyncReadExt};
 use atty::Stream;
 
 ",

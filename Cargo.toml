@@ -12,7 +12,6 @@ panic = "abort"
 [workspace.dependencies]
 clients_schema = { git = "https://github.com/elastic/elasticsearch-specification.git", branch = "main" }
 anyhow = "1.0.98"
-async-std = { version = "1.13.1", features = ["default", "attributes", "tokio1", "unstable"] }
 async-trait = "0.1.88"
 atty = "0.2.14"
 clap = { version = "4.5.39", features = ["cargo", "env", "derive", "wrap_help"] }
@@ -29,3 +28,8 @@ reqwest = { version = "0.12.19", default-features = false, features = ["json", "
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.140"
 serde_urlencoded = "0.7.1"
+tokio = { version = "1.47.1", features = [
+    "io-std",
+    "macros",
+    "rt-multi-thread",
+] }
