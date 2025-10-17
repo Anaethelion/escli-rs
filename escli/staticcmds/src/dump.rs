@@ -15,15 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
+use tokio::io::Stdout;
 use clap::{Command, CommandFactory, Parser};
 use elasticsearch::http::response::Response;
 use elasticsearch::http::transport::Transport;
 use elasticsearch::{Elasticsearch, OpenPointInTimeParts, SearchParts};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::fs::OpenOptions;
-use std::io::{BufWriter, Error, Write};
+
+use std::io::{Error as IoError, ErrorKind as IoErrorKind};
+use tokio::io::{AsyncWriteExt, AsyncWrite};
+use tokio::fs::{OpenOptions, File};
+
 use std::path::PathBuf;
+use std::pin::Pin;
+use std::task::{Context, Poll};
 use std::time::Duration;
 
 #[derive(Parser, Debug)]
@@ -92,22 +98,36 @@ struct Hit {
 }
 
 enum Output {
-    Memory(BufWriter<Vec<u8>>),
-    File(std::fs::File),
+    File(File),
+    Stdout(Stdout),
 }
 
-impl Write for Output {
-    fn write(&mut self, buf: &[u8]) -> Result<usize, Error> {
-        match self {
-            Output::Memory(m) => m.write(buf),
-            Output::File(f) => f.write(buf),
+impl AsyncWrite for Output {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<Result<usize, IoError>> {
+        let this = self.get_mut();
+        match this {
+            Output::File(f) => Pin::new(f).poll_write(cx, buf),
+            Output::Stdout(s) => Pin::new(s).poll_write(cx, buf),
         }
     }
 
-    fn flush(&mut self) -> Result<(), Error> {
-        match self {
-            Output::Memory(m) => m.flush(),
-            Output::File(f) => f.flush(),
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), IoError>> {
+        let this = self.get_mut();
+        match this {
+            Output::File(f) => Pin::new(f).poll_flush(cx),
+            Output::Stdout(s) => Pin::new(s).poll_flush(cx),
+        }
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), IoError>> {
+        let this = self.get_mut();
+        match this {
+            Output::File(f) => Pin::new(f).poll_shutdown(cx),
+            Output::Stdout(s) => Pin::new(s).poll_shutdown(cx),
         }
     }
 }
@@ -199,13 +219,14 @@ impl Dump {
                     .write(true)
                     .truncate(true)
                     .open(path)
+                    .await
                     .map_err(|e| {
                         eprintln!("Failed to open output file {:?}: {}", path, e);
                         e
                     })?;
                 Output::File(file)
             }
-            None => Output::Memory(BufWriter::new(Vec::new())),
+            None => Output::Stdout(tokio::io::stdout()),
         };
 
         for index in indices {
@@ -256,7 +277,7 @@ impl Dump {
                 }
             };
 
-            persist_ndjson(&initial_documents, index, &mut output)?;
+            persist_ndjson(&initial_documents, index, &mut output).await?;
 
             let mut next_pit = initial_documents.pit_id;
             let mut next_search_after = initial_documents
@@ -293,7 +314,7 @@ impl Dump {
                 if documents.hits.hits.is_empty() {
                     break;
                 } else {
-                    persist_ndjson(&documents, index, &mut output)?;
+                    persist_ndjson(&documents, index, &mut output).await?;
                 }
 
                 next_pit = documents.pit_id;
@@ -305,14 +326,10 @@ impl Dump {
                     .copied();
             }
         }
-        output.flush()?;
+        output.flush().await?;
+        output.shutdown().await?;
 
-        let hr = if let Output::Memory(m) = output {
-            let docs = m.into_inner().map_err(|e| e.into_error())?;
-            http::response::Response::new(docs)
-        } else {
-            http::response::Response::new(Vec::new())
-        };
+        let hr = http::response::Response::new(Vec::new());
         let rr = reqwest::Response::from(hr);
         Ok(Response::new(rr, elasticsearch::http::Method::Get))
     }
@@ -336,18 +353,25 @@ impl Dump {
 /// This function will return an error if writing to the output fails or if serializing
 /// the document source to JSON fails.
 ///
-fn persist_ndjson(
+async fn persist_ndjson(
     result: &SearchResult,
     index: &str,
-    mut output: &mut impl Write,
-) -> Result<(), Error> {
-    let mut writer = BufWriter::new(&mut output);
+    output: &mut (impl AsyncWrite + Unpin),
+) -> Result<(), IoError> {
     for doc in result.hits.hits.iter() {
         let action_line = json!({ "index": { "_index": index } });
-        writeln!(writer, "{}", action_line)?;
-        writeln!(writer, "{}", serde_json::to_string(&doc._source)?)?;
+
+        let action_s = serde_json::to_string(&action_line)
+            .map_err(|e| IoError::new(IoErrorKind::Other, e))?;
+        output.write_all(action_s.as_bytes()).await?;
+        output.write_all(b"\n").await?;
+
+        let doc_s = serde_json::to_string(&doc._source)
+            .map_err(|e| IoError::new(IoErrorKind::Other, e))?;
+        output.write_all(doc_s.as_bytes()).await?;
+        output.write_all(b"\n").await?;
     }
-    writer.flush()?;
+    output.flush().await?;
     Ok(())
 }
 
