@@ -396,11 +396,11 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_persist_ndjson() {
+    #[tokio::test]
+    async fn test_persist_ndjson() {
         let search_result = create_sample_search_result();
         let mut output = Cursor::new(Vec::new());
-        persist_ndjson(&search_result, "test_index", &mut output).unwrap();
+        persist_ndjson(&search_result, "test_index", &mut output).await.unwrap();
         let output_str = String::from_utf8(output.into_inner()).unwrap();
         let expected_output = r#"{"index":{"_index":"test_index"}}
 {"field":"value1"}
@@ -410,8 +410,8 @@ mod tests {
         assert_eq!(output_str, expected_output);
     }
 
-    #[test]
-    fn test_persist_ndjson_with_large_batch() {
+    #[tokio::test]
+    async fn test_persist_ndjson_with_large_batch() {
         let result = SearchResult {
             pit_id: "sample_pit_id".to_string(),
             hits: Hits {
@@ -424,7 +424,7 @@ mod tests {
             },
         };
         let mut output = Cursor::new(Vec::new());
-        persist_ndjson(&result, "test_index", &mut output).unwrap();
+        persist_ndjson(&result, "test_index", &mut output).await.unwrap();
         let output_str = String::from_utf8(output.into_inner()).unwrap();
         let lines: Vec<&str> = output_str.lines().collect();
         assert_eq!(lines.len(), 20_000); // Each document has an action line
@@ -436,8 +436,8 @@ mod tests {
         assert_eq!(lines[19999], r#"{"field":"value9999"}"#);
     }
 
-    #[test]
-    fn test_persist_with_multiple_indices() {
+    #[tokio::test]
+    async fn test_persist_with_multiple_indices() {
         let search_result1 = create_sample_search_result();
         let search_result2 = SearchResult {
             pit_id: "sample_pit_id_2".to_string(),
@@ -456,8 +456,8 @@ mod tests {
         };
 
         let mut output = Cursor::new(Vec::new());
-        persist_ndjson(&search_result1, "index1", &mut output).unwrap();
-        persist_ndjson(&search_result2, "index2", &mut output).unwrap();
+        persist_ndjson(&search_result1, "index1", &mut output).await.unwrap();
+        persist_ndjson(&search_result2, "index2", &mut output).await.unwrap();
         let output_str = String::from_utf8(output.into_inner()).unwrap();
         let expected_output = r#"{"index":{"_index":"index1"}}
 {"field":"value1"}
