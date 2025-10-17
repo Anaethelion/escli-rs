@@ -15,22 +15,20 @@
 // specific language governing permissions and limitations
 // under the License.
 
-use tokio::io::Stdout;
 use clap::{Command, CommandFactory, Parser};
 use elasticsearch::http::response::Response;
 use elasticsearch::http::transport::Transport;
 use elasticsearch::{Elasticsearch, OpenPointInTimeParts, SearchParts};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
-
+use serde_json::{Value, json};
 use std::io::{Error as IoError, ErrorKind as IoErrorKind};
-use tokio::io::{AsyncWriteExt, AsyncWrite};
-use tokio::fs::{OpenOptions, File};
-
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::time::Duration;
+use tokio::fs::{File, OpenOptions};
+use tokio::io::Stdout;
+use tokio::io::{AsyncWrite, AsyncWriteExt};
 
 #[derive(Parser, Debug)]
 pub struct Dump {
@@ -361,13 +359,13 @@ async fn persist_ndjson(
     for doc in result.hits.hits.iter() {
         let action_line = json!({ "index": { "_index": index } });
 
-        let action_s = serde_json::to_string(&action_line)
-            .map_err(|e| IoError::new(IoErrorKind::Other, e))?;
+        let action_s =
+            serde_json::to_string(&action_line).map_err(|e| IoError::new(IoErrorKind::Other, e))?;
         output.write_all(action_s.as_bytes()).await?;
         output.write_all(b"\n").await?;
 
-        let doc_s = serde_json::to_string(&doc._source)
-            .map_err(|e| IoError::new(IoErrorKind::Other, e))?;
+        let doc_s =
+            serde_json::to_string(&doc._source).map_err(|e| IoError::new(IoErrorKind::Other, e))?;
         output.write_all(doc_s.as_bytes()).await?;
         output.write_all(b"\n").await?;
     }
