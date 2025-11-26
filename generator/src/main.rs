@@ -119,7 +119,11 @@ async fn main() -> Result<(), Error> {
     let mut endpoints: Vec<endpoint::Endpoint> = model
         .endpoints
         .iter()
-        .filter(|e| e.name != "knn_search" && !e.name.starts_with("_internal"))
+        .filter(|e| {
+            e.name != "cat.circuit_breaker" && //TODO: Remove this exclusion, excluded until ts spec is merged
+            e.name != "knn_search" &&
+            !e.name.starts_with("_internal")
+        })
         .map(|e| endpoint::Endpoint::new(e, model))
         .collect();
     endpoints.sort_by_key(|e| e.e.name.clone());

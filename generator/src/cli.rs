@@ -171,31 +171,34 @@ pub fn generate() -> Tokens {
                     let body = res.text().await?;
 
                     if config.verbose {
-                        stderr.write(format!("Response: {}\n", istatus_code).as_bytes()).await.ok();
+                        stderr.write_all(format!("Response: {}\n", istatus_code).as_bytes()).await.ok();
                         if !headers.is_empty() {
-                            stderr.write("Headers:\n".as_bytes()).await.ok();
+                            stderr.write_all("Headers:\n".as_bytes()).await.ok();
                             for (k, v) in headers {
                                 if let Some(k) = k {
-                                    stderr.write(format!("{}: {:?}\n", k, v).as_bytes()).await.ok();
+                                    stderr.write_all(format!("{}: {:?}\n", k, v).as_bytes()).await.ok();
                                 }
                             }
                         }
-                        stderr.write("\n".as_bytes()).await.ok();
+                        stderr.write_all("\n".as_bytes()).await.ok();
                         stderr.flush().await.ok();
                     }
 
                     // Is status code 2xx or 3xx, write the body to stdout
                     // Otherwise, write the body to stderr
                     if (200..400).contains(&istatus_code) {
-                        if let Err(e) = stdout.write_all(body.as_bytes()).await {
-                            if e.kind() != io::ErrorKind::BrokenPipe {
+                        match stdout.write_all(body.as_bytes()).await {
+                            Err(e) if e.kind() != io::ErrorKind::BrokenPipe => {
                                 tokio::io::stderr()
                                     .write_all(format!("Error writing to stdout: {e}").as_bytes())
-                                    .await
-                                    .ok();
+                                    .await.ok();
+                                Ok(())
+                            }
+                            _ => {
+                                stdout.flush().await.ok();
+                                Ok(())
                             }
                         }
-                        std::process::exit(0);
                     } else {
                         if let Err(e) = stderr.write_all(body.as_bytes()).await {
                             if e.kind() != io::ErrorKind::BrokenPipe {
