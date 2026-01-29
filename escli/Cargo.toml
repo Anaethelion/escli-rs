@@ -10,7 +10,6 @@ path = "src/main.rs"
 [dependencies]
 staticcmds = { path = "staticcmds" }
 
-async-trait = { workspace = true }
 atty = { workspace = true }
 clap = { workspace = true }
 clap_complete = { workspace = true }
