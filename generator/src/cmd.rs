@@ -42,68 +42,49 @@ pub(crate) fn generate(endpoints: Vec<endpoint::Endpoint>) -> Tokens {
         });
 
     quote! {
-        use std::collections::HashMap;
         use crate::{Config, namespaces, error};
+        use crate::namespaces::Executor;
         use clap::{ArgMatches, Command, CommandFactory, FromArgMatches};
         use clap::error::ErrorKind;
 
-        // Generates the main command for the CLI application.
-        type Registry = HashMap<String, Box<dyn Fn(&ArgMatches) -> Box<dyn namespaces::Executor>>>;
-
         pub async fn dispatch(cmd: &mut Command, matches: &ArgMatches) -> Result<namespaces::TransportArgs, error::EscliError> {
-            let mut registry: Registry = HashMap::new();
-
-            $(for (_, endpoints) in &endpoints_by_namespace =>
-                $(for endpoint in endpoints =>
-                    $(&endpoint.clone().generate_executor())$['\r']
-                )
-            )
-
             if let Some((namespace, sub_matches)) = matches.subcommand() {
                 if let Some((command, arg_matches)) = sub_matches.subcommand() {
-                    if let Some(executor) = registry.get(&format!("{namespace}:{command}")) {
-                        let args = executor(arg_matches).execute().await;
-                        match args {
-                            Ok(transport_args) => {
-                                return Ok(transport_args);
+                    match (namespace, command) {
+                        $(for (_, endpoints) in &endpoints_by_namespace =>
+                            $(for endpoint in endpoints =>
+                                $(&endpoint.clone().generate_match_arm())
+                            )
+                        )
+                        _ => {
+                            if let Some(namespace_command) = cmd.find_subcommand_mut(namespace) {
+                                let _ = namespace_command.print_help();
                             }
-                            Err(e) => {
-                                eprintln!("Error executing command '{}': {}", command, e);
-                                return Err(e);
-                            }
+                            println!();
+                            cmd.error(ErrorKind::InvalidSubcommand, "unrecognized subcommand")
+                                .exit();
                         }
-                    } else {
-                        if let Some(namespace_command) = cmd.find_subcommand_mut(namespace) {
-                            let _ = namespace_command.print_help();
-                        }
-                        println!();
-                        cmd.error(ErrorKind::InvalidSubcommand, "unrecognized subcommand")
-                            .exit();
                     }
                 } else if let Some((command, arg_matches)) = matches.subcommand() {
-                    if let Some(executor) = registry.get(&format!("core:{command}")) {
-                        let args = executor(arg_matches).execute().await;
-                        match args {
-                            Ok(transport_args) => {
-                                return Ok(transport_args);
+                    match ("core", command) {
+                        $(for endpoint in &core_endpoints =>
+                            $(&endpoint.clone().generate_match_arm())
+                        )
+                        _ => {
+                            if let Some(namespace_command) = cmd.find_subcommand_mut(command) {
+                                let _ = namespace_command.print_help();
                             }
-                            Err(e) => {
-                                eprintln!("Error executing command '{command}': {e}");
-                                return Err(e);
-                            }
+                            println!();
+                            cmd.error(ErrorKind::InvalidSubcommand, "unrecognized subcommand")
+                                .exit();
                         }
-                    } else {
-                        if let Some(namespace_command) = cmd.find_subcommand_mut(command) {
-                            let _ = namespace_command.print_help();
-                        }
-                        println!();
-                        cmd.error(ErrorKind::InvalidSubcommand, "unrecognized subcommand")
-                            .exit();
                     }
+                } else {
+                    Err(error::EscliError::new("No subcommand provided or command not found"))
                 }
+            } else {
+                Err(error::EscliError::new("No subcommand provided or command not found"))
             }
-
-            Err(error::EscliError::new("No subcommand provided or command not found"))
         }
 
         // Generates the main CLI command.

@@ -19,6 +19,8 @@ use genco::{Tokens, quote};
 
 pub fn generate(namespaces: &[String]) -> Tokens {
     quote! {
+        use std::future::Future;
+
         use elasticsearch::http::headers::HeaderMap;
         use elasticsearch::http::Method;
 
@@ -48,9 +50,8 @@ pub fn generate(namespaces: &[String]) -> Tokens {
             pub body: Option<String>,
         }
 
-        #[async_trait::async_trait]
         pub trait Executor {
-            async fn execute(&self) -> Result<TransportArgs, error::EscliError>;
+            fn execute(&self) -> impl Future<Output = Result<TransportArgs, error::EscliError>> + Send;
         }
     }
 }

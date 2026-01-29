@@ -561,10 +561,9 @@ impl Endpoint {
         }
     }
 
-    pub fn generate_executor(self) -> Tokens {
+    pub fn generate_match_arm(self) -> Tokens {
         quote! {
-            //    registry.insert(format!("{namespace}:{}", endpoint.name()), Box::new(|matches| Box::new(namespaces::inference::Update::from_arg_matches(matches).unwrap())));
-            registry.insert($(quoted(vec![&self.namespace(), ":", &self.short_name()])).to_string(), Box::new(|matches| Box::new(namespaces::$(&self.namespace())::$(&self.camel_case_name())::from_arg_matches(matches).unwrap())));
+            ($(quoted(&self.namespace())), $(quoted(&self.short_name()))) => namespaces::$(&self.namespace())::$(&self.camel_case_name())::from_arg_matches(arg_matches)?.execute().await,$['\r']
         }
     }
 
@@ -720,7 +719,6 @@ impl Endpoint {
                 }
             }
 
-            #[async_trait::async_trait]
             impl Executor for $(&self.camel_case_name()) {
                                 // Executes the endpoint logic.
                 //

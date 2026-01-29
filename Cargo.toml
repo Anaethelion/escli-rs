@@ -12,7 +12,6 @@ panic = "abort"
 [workspace.dependencies]
 clients_schema = { git = "https://github.com/elastic/elasticsearch-specification.git", branch = "main" }
 anyhow = "1.0.98"
-async-trait = "0.1.88"
 atty = "0.2.14"
 clap = { version = "4.5.39", features = ["cargo", "env", "derive", "wrap_help"] }
 clap_complete = { version = "4.5.52", features = ["unstable-dynamic"] }
