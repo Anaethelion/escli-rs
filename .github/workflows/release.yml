@@ -42,45 +42,69 @@ jobs:
           fi
           echo "sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
 
-  build:
+  generate:
     needs: bump-version
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.bump-version.outputs.sha }}
+      - uses: Swatinem/rust-cache@v2
+      - name: Generate
+        run: cargo run -p generator --profile release
+      - name: Upload generated source
+        uses: actions/upload-artifact@v4
+        with:
+          name: generated-src
+          path: escli/src/
+
+  build:
+    needs: [ bump-version, generate ]
     permissions:
       contents: read
     strategy:
       matrix:
-        BUILD_TARGET: [release]
-        os: [ubuntu-latest, macos-latest, windows-latest]
         include:
           - os: ubuntu-latest
-            artifact-name: escli-linux
-            artifact-path: target/release/escli
+            artifact-name: escli-linux-amd64
+            artifact-path: target/x86_64-unknown-linux-musl/release/escli
+            cargo-target: x86_64-unknown-linux-musl
+          - os: ubuntu-24.04-arm
+            artifact-name: escli-linux-arm64
+            artifact-path: target/aarch64-unknown-linux-musl/release/escli
+            cargo-target: aarch64-unknown-linux-musl
           - os: macos-latest
             artifact-name: escli-macos
             artifact-path: target/release/escli
+            cargo-target: ''
           - os: windows-latest
             artifact-name: escli-windows
             artifact-path: target/release/escli.exe
+            cargo-target: ''
     name: Build on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ needs.bump-version.outputs.sha }}
-      - uses: actions/cache@v4
+      - uses: Swatinem/rust-cache@v2
+      - name: Download generated source
+        uses: actions/download-artifact@v4
         with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-      - name: Generate
-        run: cargo run -p generator --profile ${{ matrix.BUILD_TARGET }}
-      - name: Test
-        run: cargo test --profile ${{ matrix.BUILD_TARGET }}
+          name: generated-src
+          path: escli/src/
+      - name: Install musl tools
+        if: matrix.cargo-target != ''
+        run: |
+          sudo apt-get update -q && sudo apt-get install -y -q musl-tools
+          rustup target add ${{ matrix.cargo-target }}
       - name: Build
-        run: cargo build -p escli --profile ${{ matrix.BUILD_TARGET }}
+        shell: bash
+        run: |
+          TARGET="${{ matrix.cargo-target }}"
+          cargo build -p escli --profile release ${TARGET:+--target $TARGET}
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
@@ -110,13 +134,12 @@ jobs:
       - name: Prepare release assets
         run: |
           mkdir -p release-assets
-          # Linux binary
-          cp artifacts/escli-linux/escli release-assets/escli-linux
-          chmod +x release-assets/escli-linux
-          # macOS binary
+          cp artifacts/escli-linux-amd64/escli release-assets/escli-linux-amd64
+          chmod +x release-assets/escli-linux-amd64
+          cp artifacts/escli-linux-arm64/escli release-assets/escli-linux-arm64
+          chmod +x release-assets/escli-linux-arm64
           cp artifacts/escli-macos/escli release-assets/escli-macos
           chmod +x release-assets/escli-macos
-          # Windows binary
           cp artifacts/escli-windows/escli.exe release-assets/escli-windows.exe
 
       - name: Create Release
@@ -126,6 +149,7 @@ jobs:
           prerelease: true
           generate_release_notes: true
           files: |
-            release-assets/escli-linux
+            release-assets/escli-linux-amd64
+            release-assets/escli-linux-arm64
             release-assets/escli-macos
             release-assets/escli-windows.exe
