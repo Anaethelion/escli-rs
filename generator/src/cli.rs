@@ -83,20 +83,36 @@ pub fn generate() -> Tokens {
         //
         // A `Result` indicating success or failure.
         #[tokio::main]
-        async fn main() -> Result<(), error::EscliError> {
+        async fn main() {
             clap_complete::CompleteEnv::with_factory(cmd::command).complete();
             dotenv().ok();
 
             let mut cmd = cmd::command();
             let matches = cmd.clone().get_matches();
-            let config = Config::from_arg_matches(&matches)?;
+            let config = match Config::from_arg_matches(&matches) {
+                Ok(c) => c,
+                Err(e) => e.exit(),
+            };
 
             let transport = if config.insecure.is_some() {
-                TransportBuilder::new(SingleNodeConnectionPool::new(config.url))
+                match TransportBuilder::new(SingleNodeConnectionPool::new(config.url))
                     .cert_validation(CertificateValidation::None)
-                    .build()?
+                    .build()
+                {
+                    Ok(t) => t,
+                    Err(e) => {
+                        eprintln!("{}", error::EscliError::from(e));
+                        std::process::exit(1);
+                    }
+                }
             } else {
-                TransportBuilder::new(SingleNodeConnectionPool::new(config.url)).build()?
+                match TransportBuilder::new(SingleNodeConnectionPool::new(config.url)).build() {
+                    Ok(t) => t,
+                    Err(e) => {
+                        eprintln!("{}", error::EscliError::from(e));
+                        std::process::exit(1);
+                    }
+                }
             };
 
             match (&config.api_key, &config.username, &config.password) {
@@ -175,7 +191,15 @@ pub fn generate() -> Tokens {
                 Ok(res) => {
                     let istatus_code = res.status_code().as_u16() as i32;
                     let headers = res.headers().clone();
-                    let body = res.text().await?;
+                    let body = match res.text().await {
+                        Ok(b) => b,
+                        Err(e) => {
+                            let msg = format!("{}\n", error::EscliError::from(e));
+                            stderr.write_all(msg.as_bytes()).await.ok();
+                            stderr.flush().await.ok();
+                            std::process::exit(1);
+                        }
+                    };
 
                     if config.verbose {
                         stderr.write_all(format!("Response: {}\n", istatus_code).as_bytes()).await.ok();
@@ -199,11 +223,9 @@ pub fn generate() -> Tokens {
                                 tokio::io::stderr()
                                     .write_all(format!("Error writing to stdout: {e}").as_bytes())
                                     .await.ok();
-                                Ok(())
                             }
                             _ => {
                                 stdout.flush().await.ok();
-                                Ok(())
                             }
                         }
                     } else {

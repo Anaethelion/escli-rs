@@ -26,16 +26,12 @@ use genco::{Tokens, quote};
 // A `Tokens` object containing the generated error handling code.
 pub(crate) fn generate() -> Tokens {
     quote! {
-        use std::convert::Infallible;
         use std::error::Error;
         use std::fmt::{Display, Formatter};
-        use clap::error::ErrorKind;
 
         #[doc=" Represents errors that can occur in the CLI application."]
         #[derive(Debug)]
         pub enum EscliError {
-            #[doc=" Indicates a configuration error."]
-            Config(String),
             #[doc=" Indicates a transport error."]
             Transport(String),
             #[doc=" Indicates a command error."]
@@ -56,7 +52,6 @@ pub(crate) fn generate() -> Tokens {
         impl Display for EscliError {
             fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
                 match self {
-                    EscliError::Config(msg) => write!(f, "{msg}"),
                     EscliError::Transport(msg) => write!(f, "{msg}"),
                     EscliError::Command(msg) => write!(f, "{msg}"),
                     EscliError::Execution(msg) => write!(f, "{msg}"),
@@ -75,28 +70,14 @@ pub(crate) fn generate() -> Tokens {
         #[doc=" Converts `clap::error::Error` into `EscliError`."]
         impl From<clap::error::Error> for EscliError {
             fn from(value: clap::error::Error) -> Self {
-                EscliError::Command(format!("Command error: {value}"))
-            }
-        }
-
-        #[doc=" Converts `Infallible` into `EscliError`."]
-        impl From<Infallible> for EscliError {
-            fn from(value: Infallible) -> Self {
-                EscliError::Command(format!("Infallible error: {value}"))
-            }
-        }
-
-        #[doc=" Converts `ErrorKind` into `EscliError`."]
-        impl From<ErrorKind> for EscliError {
-            fn from(value: ErrorKind) -> Self {
-                EscliError::Config(format!("Error parsing config file: {value}"))
+                EscliError::Command(value.to_string())
             }
         }
 
         #[doc=" Converts `serde_json::error::Error` into `EscliError`."]
         impl From<serde_json::error::Error> for EscliError {
             fn from(value: serde_json::error::Error) -> Self {
-                EscliError::Config(format!("Error parsing config file: {value}"))
+                EscliError::Execution(format!("Failed to decode response as JSON: {value}"))
             }
         }
 
