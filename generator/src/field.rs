@@ -93,9 +93,8 @@ impl Field {
         }
     }
 
-    // Returns the name of the field.
-    pub fn name(&self) -> String {
-        self.name.clone()
+    pub fn name(&self) -> &str {
+        &self.name
     }
 
     fn sanitize_field_name(name: &str) -> String {

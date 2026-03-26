@@ -23,21 +23,19 @@
 
 use genco::prelude::quoted;
 use genco::{Tokens, quote};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 use crate::endpoint;
 
-pub(crate) fn generate(endpoints: Vec<endpoint::Endpoint>) -> Tokens {
-    let core_endpoints = endpoints
+pub(crate) fn generate(endpoints: &[endpoint::Endpoint]) -> Tokens {
+    let core_endpoints: Vec<&endpoint::Endpoint> = endpoints
         .iter()
         .filter(|e| e.namespace() == "core")
-        .cloned()
-        .collect::<Vec<endpoint::Endpoint>>();
+        .collect();
 
-    let endpoints_by_namespace: HashMap<String, Vec<endpoint::Endpoint>> =
-        endpoints.iter().fold(HashMap::new(), |mut acc, e| {
-            let endpoints = acc.entry(e.namespace().clone()).or_default();
-            endpoints.push(e.clone());
+    let endpoints_by_namespace: BTreeMap<String, Vec<&endpoint::Endpoint>> =
+        endpoints.iter().fold(BTreeMap::new(), |mut acc, e| {
+            acc.entry(e.namespace()).or_default().push(e);
             acc
         });
 
@@ -53,7 +51,7 @@ pub(crate) fn generate(endpoints: Vec<endpoint::Endpoint>) -> Tokens {
                     match (namespace, command) {
                         $(for (_, endpoints) in &endpoints_by_namespace =>
                             $(for endpoint in endpoints =>
-                                $(&endpoint.clone().generate_match_arm())
+                                $(&endpoint.generate_match_arm())
                             )
                         )
                         _ => {
@@ -68,7 +66,7 @@ pub(crate) fn generate(endpoints: Vec<endpoint::Endpoint>) -> Tokens {
                 } else if let Some((command, arg_matches)) = matches.subcommand() {
                     match ("core", command) {
                         $(for endpoint in &core_endpoints =>
-                            $(&endpoint.clone().generate_match_arm())
+                            $(&endpoint.generate_match_arm())
                         )
                         _ => {
                             if let Some(namespace_command) = cmd.find_subcommand_mut(command) {
@@ -122,7 +120,7 @@ pub(crate) fn generate(endpoints: Vec<endpoint::Endpoint>) -> Tokens {
                 )
                 .subcommands([
                     $(for endpoint in &core_endpoints =>
-                        $(endpoint.clone().generate_new_command())
+                        $(endpoint.generate_new_command())
                     )
                 ])
                 $(for (namespace, endpoints) in &endpoints_by_namespace =>
@@ -130,7 +128,7 @@ pub(crate) fn generate(endpoints: Vec<endpoint::Endpoint>) -> Tokens {
                         Command::new($(quoted(namespace)))
                         .subcommands([
                             $(for endpoint in endpoints =>
-                                $(endpoint.clone().generate_new_command())
+                                $(endpoint.generate_new_command())
                             )
                         ])
                     )$['\r']
