@@ -667,7 +667,7 @@ impl Endpoint {
                             .read_to_string(&mut body).await?;
                     }
                     None => {
-                        if !atty::is(Stream::Stdin) {
+                        if !std::io::stdin().is_terminal() {
                             io::stdin().read_to_string(&mut body).await?;
                         }
                     }
