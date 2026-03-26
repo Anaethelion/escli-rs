@@ -110,17 +110,31 @@ pub(crate) fn generate() -> Tokens {
         impl From<elasticsearch::Error> for EscliError {
             fn from(value: elasticsearch::Error) -> Self {
                 if let Some(source) = value.source() {
-                    if let Some(reqwest_error) = source.downcast_ref::<reqwest::Error>()
-                    {
-                        let mut s = format!("Error executing query: {reqwest_error}, ");
-                        if let Some(source) = reqwest_error.source() {
-                            s.push_str(format!("caused by: {source}").as_str());
+                    if let Some(e) = source.downcast_ref::<reqwest::Error>() {
+                        if e.is_timeout() {
+                            return EscliError::Execution(
+                                "Request timed out — try increasing --timeout".to_string()
+                            );
                         }
-                        return EscliError::Execution(s);
+                        if e.is_connect() {
+                            let url = e.url()
+                                .map(|u| {
+                                    let mut s = format!("{}://{}", u.scheme(), u.host_str().unwrap_or("?"));
+                                    if let Some(port) = u.port() { s.push_str(&format!(":{port}")); }
+                                    format!(" to {s}")
+                                })
+                                .unwrap_or_default();
+                            let cause = {
+                                let mut c: &dyn std::error::Error = e;
+                                while let Some(s) = c.source() { c = s; }
+                                c.to_string()
+                            };
+                            return EscliError::Execution(format!("Could not connect{url}: {cause}"));
+                        }
+                        return EscliError::Execution(format!("Request failed: {e}"));
                     }
                 }
-
-                EscliError::Execution(format!("Error executing query: {value}"))
+                EscliError::Execution(format!("Error: {value}"))
             }
         }
     }

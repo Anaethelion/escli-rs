@@ -140,7 +140,14 @@ pub fn generate() -> Tokens {
             if matches.subcommand_matches("utils").is_some() {
                 res = staticcmds::run_command(cmd, matches.subcommand().unwrap().1, transport, config.timeout).await;
             } else {
-                let args = cmd::dispatch(&mut cmd, &matches).await?;
+                let args = match cmd::dispatch(&mut cmd, &matches).await {
+                    Ok(args) => args,
+                    Err(e) => {
+                        stderr.write_all(format!("{e}\n").as_bytes()).await.ok();
+                        stderr.flush().await.ok();
+                        std::process::exit(1);
+                    }
+                };
                 if config.verbose {
                     let qs = serde_urlencoded::to_string(&args.query_string).unwrap_or_default();
                     stderr.write(format!("Request: {:?} {}?{}\n", args.method, args.path, qs).as_bytes()).await.ok();
@@ -213,12 +220,11 @@ pub fn generate() -> Tokens {
                     }
                 }
                 Err(err) => {
-                    if let Err(e) = tokio::io::stderr()
-                        .write_all(format!("{}", error::EscliError::from(err)).as_bytes())
-                        .await
-                    {
+                    let msg = format!("{}\n", error::EscliError::from(err));
+                    if let Err(e) = stderr.write_all(msg.as_bytes()).await {
                         if e.kind() != std::io::ErrorKind::BrokenPipe {}
                     }
+                    stderr.flush().await.ok();
                     std::process::exit(1);
                 }
             }
