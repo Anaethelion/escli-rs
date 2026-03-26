@@ -753,13 +753,13 @@ impl Endpoint {
                     #[derive(serde::Serialize)]
                     struct Q {
                         $(for field in &self.query_parameters =>
-                            $(&field.original_field_name()): $(&field.typ()),$['\r']
+                            $(&field.original_field_name()): $(&field.q_typ()),$['\r']
                         )
                     }
 
                     let q = Q {
                         $(for field in &self.query_parameters =>
-                            $(&field.original_field_name()): self.$(field.name())$(&field.clone_candidate()),$['\r']
+                            $(&field.original_field_name()): $(field.q_assign()),$['\r']
                         )
                     };
 
