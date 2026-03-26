@@ -208,6 +208,7 @@ pub fn generate() -> Tokens {
                                     .ok();
                             }
                         }
+                        stderr.flush().await.ok();
                         std::process::exit(1);
                     }
                 }
