@@ -12,7 +12,38 @@ on:
         type: string
 
 jobs:
+  bump-version:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      sha: ${{ steps.push.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Bump version in Cargo.toml
+        run: |
+          VERSION="${{ inputs.tag || github.ref_name }}"
+          VERSION="${VERSION#v}"
+          sed -i "s/^version = \".*\"/version = \"$VERSION\"/" escli/Cargo.toml
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+      - name: Commit and push
+        id: push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add escli/Cargo.toml
+          if git diff --staged --quiet; then
+            echo "No version change needed"
+          else
+            git commit -m "chore: bump version to ${{ env.VERSION }}"
+            git push origin main
+          fi
+          echo "sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+
   build:
+    needs: bump-version
     permissions:
       contents: read
     strategy:
@@ -34,7 +65,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.tag || github.ref }}
+          ref: ${{ needs.bump-version.outputs.sha }}
       - uses: actions/cache@v4
         with:
           path: |
