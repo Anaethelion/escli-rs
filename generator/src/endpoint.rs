@@ -405,7 +405,16 @@ impl Endpoint {
                                 e.base.name.clone(),
                                 Enum::new(
                                     &e.base.name.name,
-                                    e.members.iter().map(|m| m.name.clone()).collect(),
+                                    e.members
+                                        .iter()
+                                        .map(|m| {
+                                            let code = m
+                                                .codegen_name
+                                                .clone()
+                                                .unwrap_or_else(|| m.name.clone());
+                                            (m.name.clone(), code)
+                                        })
+                                        .collect(),
                                 ),
                             );
                             e.base.name.name.to_string()
@@ -667,7 +676,7 @@ impl Endpoint {
                             .read_to_string(&mut body).await?;
                     }
                     None => {
-                        if !atty::is(Stream::Stdin) {
+                        if !std::io::stdin().is_terminal() {
                             io::stdin().read_to_string(&mut body).await?;
                         }
                     }

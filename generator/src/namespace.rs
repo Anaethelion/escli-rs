@@ -61,7 +61,7 @@ use elasticsearch::http::headers::HeaderMap;
 use tokio::fs::File;
 use tokio::io;
 use tokio::io::{BufReader, AsyncReadExt};
-use atty::Stream;
+use std::io::IsTerminal;
 
 ",
                 )
