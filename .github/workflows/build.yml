@@ -16,8 +16,11 @@ on:
 
 jobs:
   test:
-    name: Test
-    runs-on: ubuntu-latest
+    name: Test on ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ ubuntu-latest, macos-latest, windows-latest ]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
@@ -31,7 +34,7 @@ jobs:
   generate:
     name: Generate source
     if: github.event_name == 'push'
-    needs: test
+    needs: [ test ]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
