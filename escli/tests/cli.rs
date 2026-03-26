@@ -391,6 +391,47 @@ async fn non_utf8_response_body_shows_friendly_message() {
     }
 }
 
+// --- binary response passthrough ---------------------------------------------
+
+/// Arrow IPC bytes contain 0xFF which is invalid UTF-8.  If the response goes
+/// through a text layer the byte gets replaced with the UTF-8 replacement
+/// sequence (EF BF BD), corrupting the stream.  This test verifies that raw
+/// bytes reach stdout untouched.
+#[tokio::test]
+async fn binary_response_bytes_are_not_utf8_encoded() {
+    // Minimal fake Arrow IPC stream: starts with 0xFF 0xFF 0xFF 0xFF
+    // (continuation marker), followed by arbitrary non-UTF-8 bytes.
+    let arrow_bytes: Vec<u8> = vec![0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00];
+
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/_query"))
+        .and(query_param("format", "arrow"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("content-type", "application/vnd.apache.arrow.stream")
+                .set_body_bytes(arrow_bytes.clone()),
+        )
+        .mount(&server)
+        .await;
+
+    let output = escli(&server)
+        .args(["esql", "query", "--format", "arrow"])
+        .write_stdin(r#"{"query":"FROM test"}"#)
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "expected success, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        output.stdout, arrow_bytes,
+        "stdout bytes were corrupted (UTF-8 encoding applied to binary response)"
+    );
+}
+
 // --- argument validation -----------------------------------------------------
 
 #[test]
