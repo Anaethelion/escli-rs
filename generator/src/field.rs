@@ -71,25 +71,25 @@ impl Field {
         }
     }
 
-    // Returns the type of the field, wrapped in `Option` if the field is not required.
     pub fn typ(&self) -> String {
-        if self.required {
+        if self.is_vec() {
+            self.ty.clone()
+        } else if self.required {
             self.ty.clone()
         } else {
             format!("Option<{}>", self.ty)
         }
     }
 
+    fn is_vec(&self) -> bool {
+        self.ty.starts_with("Vec<")
+    }
+
     pub fn clone_candidate(&self) -> Tokens {
-        match self.ty.as_str() {
-            "String" => {
-                quote! {
-                    .clone()
-                }
-            }
-            &_ => {
-                quote! {}
-            }
+        if self.is_vec() || self.ty == "String" {
+            quote! { .clone() }
+        } else {
+            quote! {}
         }
     }
 
@@ -140,6 +140,13 @@ impl Field {
         let short_help = self.short_help().escape_default().to_string();
         let long_help = self.long_help().escape_default().to_string();
         let name = self.name.escape_default().to_string();
+
+        if self.is_vec() {
+            return quote! {
+                #[arg(long($(quoted(&name))), help = $(quoted(&short_help)), long_help = $(quoted(&long_help)), num_args = 0.., value_delimiter = ',')]
+                $(&self.name): $(&self.typ()),$['\r']
+            };
+        }
 
         let base_quote = |action: Option<&str>| match action {
             Some(action) => quote! {

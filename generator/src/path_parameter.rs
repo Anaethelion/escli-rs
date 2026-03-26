@@ -102,11 +102,14 @@ impl PathParameter {
     //
     // A `Vec<String>` containing the names of all parameters.
     pub fn params(&self) -> Vec<String> {
-        self.optional_parameters
+        let mut params: Vec<String> = self
+            .optional_parameters
             .iter()
             .chain(self.mandatory_parameters.iter())
             .cloned()
-            .collect()
+            .collect();
+        params.sort();
+        params
     }
 
     // Generates the pattern for matching parameters in the path.

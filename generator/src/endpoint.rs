@@ -347,7 +347,11 @@ impl Endpoint {
                 .path
                 .iter()
                 .map(|p| {
-                    let ty = self.resolve_value_of(&p.typ, model);
+                    let mut ty = self.resolve_value_of(&p.typ, model);
+                    // Path parameters are always scalar URL segments
+                    if ty.starts_with("Vec<") {
+                        ty = "String".to_string();
+                    }
                     Field::new(
                         p.name.clone(),
                         p.description.clone().unwrap_or_default(),
@@ -430,10 +434,9 @@ impl Endpoint {
                     "String".to_string()
                 }
             }
-            ValueOf::ArrayOf(_) => {
-                // TODO : explore if Vac is really a good idea.
-                // format!("Vec<{}>", self.resolve_value_of(a.value.as_ref(), model))
-                "String".to_string()
+            ValueOf::ArrayOf(a) => {
+                let inner = self.resolve_value_of(a.value.as_ref(), model);
+                format!("Vec<{inner}>")
             }
             _ => "String".to_string(),
         }

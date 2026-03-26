@@ -1,4 +1,5 @@
 .idea
 /target
 escli/src/*
-schema.json
+schema*.json
+schema*.json.tmp
