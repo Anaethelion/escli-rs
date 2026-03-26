@@ -20,10 +20,29 @@ on:
         default: false
 
 jobs:
+  # Generates source code when triggered manually.
+  # Skipped on workflow_call — the release workflow already provides the artifacts.
+  generate:
+    if: ${{ !inputs.binaries-provided }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+      - name: Generate
+        run: cargo run -p generator --profile release
+      - name: Upload generated source
+        uses: actions/upload-artifact@v4
+        with:
+          name: generated-src
+          path: escli/src/
+
   # Compiles musl binaries when triggered manually.
   # Skipped on workflow_call — the release workflow already provides the artifacts.
   build-binaries:
-    if: ${{ !inputs.binaries-provided }}
+    needs: generate
+    if: always() && (needs.generate.result == 'success' || needs.generate.result == 'skipped')
     permissions:
       contents: read
     strategy:
@@ -39,12 +58,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
+      - name: Download generated source
+        uses: actions/download-artifact@v4
+        with:
+          name: generated-src
+          path: escli/src/
       - name: Install musl tools
         run: |
           sudo apt-get update -q && sudo apt-get install -y -q musl-tools
           rustup target add ${{ matrix.cargo-target }}
-      - name: Generate
-        run: cargo run -p generator --profile release
       - name: Build
         run: cargo build -p escli --profile release --target ${{ matrix.cargo-target }}
       - name: Upload artifact
@@ -54,7 +76,7 @@ jobs:
           path: target/${{ matrix.cargo-target }}/release/escli
 
   build:
-    needs: build-binaries
+    needs: [ generate, build-binaries ]
     if: always() && (needs.build-binaries.result == 'success' || needs.build-binaries.result == 'skipped')
     permissions:
       contents: read
