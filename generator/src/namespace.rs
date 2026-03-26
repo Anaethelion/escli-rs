@@ -15,78 +15,39 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// Represents the header configuration for a namespace file.
-//
-// This struct contains flags that determine whether certain sections (enums and input handling)
-// should be included in the generated namespace file.
 pub struct NamespaceFileHeader {
-    // Indicates whether enums should be included in the namespace file.
     pub with_enums: bool,
-    // Indicates whether input handling should be included in the namespace file.
     pub with_input: bool,
 }
 
 impl NamespaceFileHeader {
-    // Writes the namespace file header to the provided writer.
-    //
-    // This function generates the necessary imports and writes them to the given writer.
-    // It conditionally includes imports for enums and input handling based on the struct's flags.
-    //
-    // # Arguments
-    //
-    // * `writer` - A mutable reference to an object implementing `tokio::io::AsyncWriteExt` and `Unpin`.
-    //
-    // # Returns
-    //
-    // An `tokio::io::Result<()>` indicating success or failure.
-    pub async fn write_to<W: tokio::io::AsyncWriteExt + Unpin>(
-        &self,
-        mut writer: W,
-    ) -> tokio::io::Result<()> {
-        // Write common imports to the writer.
-        writer
-            .write_all(
-                b"use clap::{Command, CommandFactory, Parser};
-use elasticsearch::http::Method;
-use elasticsearch::http::headers::HeaderMap;
-",
-            )
-            .await?;
+    pub fn to_header_string(&self) -> String {
+        let mut out = String::from(
+            "use clap::{Command, CommandFactory, Parser};\n\
+             use elasticsearch::http::Method;\n\
+             use elasticsearch::http::headers::HeaderMap;\n",
+        );
 
-        // Conditionally include input handling imports if `with_input` is true.
         if self.with_input {
-            writer
-                .write_all(
-                    b"
-use tokio::fs::File;
-use tokio::io;
-use tokio::io::{BufReader, AsyncReadExt};
-use std::io::IsTerminal;
-
-",
-                )
-                .await?;
+            out.push_str(
+                "\nuse tokio::fs::File;\n\
+                 use tokio::io;\n\
+                 use tokio::io::{BufReader, AsyncReadExt};\n\
+                 use std::io::IsTerminal;\n\n",
+            );
         }
 
-        // Conditionally include enums imports if `with_enums` is true.
         if self.with_enums {
-            writer.write_all(b"use crate::enums::*;").await?;
+            out.push_str("use crate::enums::*;");
         }
 
-        // Use the shared parse_header from namespaces mod
-        writer
-            .write_all(
-                b"
-use crate::error;
-use crate::namespaces::TransportArgs;
-use crate::namespaces::parse_header;
-use crate::namespaces::Executor;",
-            )
-            .await?;
+        out.push_str(
+            "\nuse crate::error;\n\
+             use crate::namespaces::TransportArgs;\n\
+             use crate::namespaces::parse_header;\n\
+             use crate::namespaces::Executor;\n\n",
+        );
 
-        // Write a newline to separate sections.
-        writer.write_all(b"\n\n").await?;
-
-        Ok(())
+        out
     }
 }

@@ -15,11 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// Main module for generating CLI commands and namespace files.
-//
-// This module handles the generation of CLI commands, error handling, and namespace files
-// based on the Elasticsearch schema. It includes functionality for downloading the schema,
-// parsing it, and generating Rust code for endpoints and namespaces.
 mod cli;
 mod cmd;
 mod endpoint;
@@ -32,23 +27,23 @@ mod path_parameter;
 
 use anyhow::Error;
 use tokio::fs;
-use tokio::fs::{OpenOptions, read_to_string};
-use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
+use tokio::fs::read_to_string;
 use clap::{CommandFactory, Parser};
 use clients_schema::IndexedModel;
-use std::collections::HashSet;
-use std::io::SeekFrom;
-use std::path::Path;
+use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
 
-// Represents the CLI options for the generator.
-//
-// This struct defines the available command-line arguments for the generator,
-// including the branch to fetch the schema from.
+const EXCLUDED_ENDPOINTS: &[&str] = &["knn_search"];
+const EXCLUDED_PREFIXES: &[&str] = &["_internal"];
+
 #[derive(Parser)]
 struct Options {
-    // Specifies the branch to fetch the schema from. Defaults to "main".
     #[clap(help = "Branch to fetch the schema from, default to main")]
     branch: Option<String>,
+}
+
+fn schema_cache_path(branch: &str) -> PathBuf {
+    PathBuf::from(format!("schema-{branch}.json"))
 }
 
 static LICENSE: &str = r#"// Licensed to Elasticsearch B.V. under one or more contributor
@@ -69,65 +64,44 @@ static LICENSE: &str = r#"// Licensed to Elasticsearch B.V. under one or more co
 // under the License.
 "#;
 
-// Entry point for the generator.
-//
-// This asynchronous function handles the entire process of generating CLI commands
-// and namespace files. It downloads the schema, parses it, filters endpoints, and
-// generates the necessary Rust code.
-//
-// # Returns
-//
-// A `Result` indicating success or failure.
 #[tokio::main]
 async fn main() -> Result<(), Error> {
-    // Parse CLI options
     let options = Options::command().get_matches();
-    let spec: String;
+    let branch = options
+        .get_one::<String>("branch")
+        .map_or("main", |s| s.as_str());
 
-    // Set up output paths
     let binpath = Path::new("escli").join("src");
     let output_dir = "namespaces";
 
-    // Download or read the schema file
-    let schema_tmp_path = Path::new("schema.json");
-    if !schema_tmp_path.exists() {
-        let mut file = OpenOptions::new()
-            .create(true)
-            .truncate(true)
-            .write(true)
-            .open(schema_tmp_path)
-            .await?;
-
-        // Determine schema URL based on branch option
-        let url = match options.get_one::<String>("branch") {
-            Some(branch) => format!("https://raw.githubusercontent.com/elastic/elasticsearch-specification/{branch}/output/schema/schema.json"),
-            None => "https://raw.githubusercontent.com/elastic/elasticsearch-specification/main/output/schema/schema.json".to_string(),
-        };
-
-        // Download and save schema
-        spec = reqwest::get(url).await?.text().await?;
-        file.write_all(spec.as_bytes()).await?;
+    // Branch-aware schema caching with atomic download
+    let cache_path = schema_cache_path(branch);
+    let spec = if cache_path.exists() {
+        read_to_string(&cache_path).await?
     } else {
-        // Read schema from local file
-        spec = read_to_string(schema_tmp_path).await?;
-    }
+        let url = format!(
+            "https://raw.githubusercontent.com/elastic/elasticsearch-specification/{branch}/output/schema/schema.json"
+        );
+        let body = reqwest::get(&url).await?.text().await?;
+        let tmp_path = cache_path.with_extension("json.tmp");
+        fs::write(&tmp_path, &body).await?;
+        fs::rename(&tmp_path, &cache_path).await?;
+        body
+    };
 
-    // Parse the schema into a model
     let model: &IndexedModel = &serde_json::from_str(&spec)?;
 
-    // Filter and sort endpoints
     let mut endpoints: Vec<endpoint::Endpoint> = model
         .endpoints
         .iter()
         .filter(|e| {
-            e.name != "knn_search" &&
-            !e.name.starts_with("_internal")
+            !EXCLUDED_ENDPOINTS.contains(&e.name.as_str())
+                && !EXCLUDED_PREFIXES.iter().any(|p| e.name.starts_with(p))
         })
         .map(|e| endpoint::Endpoint::new(e, model))
         .collect();
     endpoints.sort_by(|a, b| a.e.name.cmp(&b.e.name));
 
-    // Collect and sort unique namespaces
     let mut namespaces: Vec<String> = endpoints
         .iter()
         .map(|e| e.namespace())
@@ -136,10 +110,8 @@ async fn main() -> Result<(), Error> {
         .collect();
     namespaces.sort();
 
-    // Ensure output directory exists
     fs::create_dir_all(binpath.clone()).await?;
 
-    // Generate main CLI and error files
     fs::write(
         binpath.join("main.rs"),
         format!("{LICENSE}\n{}", cli::generate().to_string()?),
@@ -159,83 +131,73 @@ async fn main() -> Result<(), Error> {
     )
     .await?;
 
-    // Generate mod.rs for namespaces
-    let endpoints_path = binpath.join(output_dir).join("mod.rs");
-    fs::create_dir_all(endpoints_path.parent().unwrap()).await?;
+    let ns_dir = binpath.join(output_dir);
+    fs::create_dir_all(&ns_dir).await?;
     fs::write(
-        endpoints_path,
+        ns_dir.join("mod.rs"),
         format!("{LICENSE}\n{}", module::generate(&namespaces).to_string()?),
     )
     .await?;
 
-    // Remove old namespace files
-    for namespace in &namespaces {
-        let namespace_path = binpath
-            .join(output_dir)
-            .join(namespace.replace(".", "_") + ".rs");
-        fs::remove_file(&namespace_path).await.ok();
-    }
-
-    // Create enums.rs and write header
-    let mut enums_file = OpenOptions::new()
-        .write(true)
-        .truncate(true)
-        .create(true)
-        .open(binpath.join("enums.rs"))
-        .await?;
-    enums_file
-        .write_all(format!("{LICENSE}\n").as_bytes())
-        .await?;
-    enums_file.write_all(b"use serde::Serialize;\n").await?;
-
-    // Generate code for endpoints and enums
-    let mut namespace_with_enums = HashSet::new();
-    let mut rendered_enums = HashSet::new();
+    // Accumulate all namespace content and enum content in memory
+    let mut namespace_content: HashMap<String, String> = HashMap::new();
+    let mut enums_content = format!("{LICENSE}\nuse serde::Serialize;\n");
+    let mut namespace_with_enums: HashSet<String> = HashSet::new();
+    let mut rendered_enums: HashSet<String> = HashSet::new();
 
     for endpoint in &endpoints {
-        let file_path = binpath.join(output_dir).join(endpoint.namespace() + ".rs");
-        let mut file = OpenOptions::new()
-            .append(true)
-            .create(true)
-            .open(file_path)
-            .await?;
-        file.write_all(endpoint.generate().to_string()?.as_ref())
-            .await?;
-        file.write_all(b"\n\n").await?;
+        let ns = endpoint.namespace();
+        let code = endpoint.generate().to_string()?;
+        namespace_content
+            .entry(ns.clone())
+            .or_default()
+            .push_str(&format!("{code}\n\n"));
 
-        for (name, enum_) in endpoint.enums() {
+        let mut sorted_enums: Vec<_> = endpoint.enums().iter().collect();
+        sorted_enums.sort_by_key(|(name, _)| name.name.clone());
+        for (name, enum_) in sorted_enums {
             if rendered_enums.insert(name.name.to_string()) {
-                enums_file
-                    .write_all(enum_.generate().to_string()?.as_ref())
-                    .await?;
-                enums_file.write_all(b"\n\n").await?;
+                enums_content.push_str(&enum_.generate().to_string()?);
+                enums_content.push_str("\n\n");
             }
-            namespace_with_enums.insert(endpoint.namespace().to_string());
+            namespace_with_enums.insert(ns.clone());
         }
     }
 
-    // Write headers for namespace files
-    for namespace in &namespaces {
-        let namespace_path = binpath.join(output_dir).join(format!("{namespace}.rs"));
-        let mut file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .open(&namespace_path)
-            .await?;
-        let mut buf = String::new();
-        file.read_to_string(&mut buf).await?;
-        file.seek(SeekFrom::Start(0)).await?;
+    fs::write(binpath.join("enums.rs"), &enums_content).await?;
 
+    // Write each namespace file with header prepended
+    for namespace in &namespaces {
         let header = namespace::NamespaceFileHeader {
             with_enums: namespace_with_enums.contains(namespace),
             with_input: endpoints
                 .iter()
                 .any(|e| e.namespace() == *namespace && e.has_request()),
         };
-        file.write_all(format!("{LICENSE}\n").as_bytes()).await?;
-        header.write_to(&mut file).await?;
-        file.write_all(buf.as_ref()).await?;
+        let body = namespace_content.get(namespace).map_or("", |s| s.as_str());
+        let full_content = format!("{LICENSE}\n{}{body}", header.to_header_string());
+
+        let file_path = ns_dir.join(format!("{namespace}.rs"));
+        fs::write(&file_path, &full_content).await?;
+    }
+
+    // Format all generated files
+    let status = std::process::Command::new("rustfmt")
+        .arg("--edition")
+        .arg("2024")
+        .args(
+            std::fs::read_dir(&binpath)?
+                .chain(std::fs::read_dir(&ns_dir)?)
+                .filter_map(|e| e.ok())
+                .map(|e| e.path())
+                .filter(|p| p.extension().is_some_and(|ext| ext == "rs")),
+        )
+        .status();
+
+    match status {
+        Ok(s) if s.success() => {}
+        Ok(s) => eprintln!("rustfmt exited with status: {s}"),
+        Err(e) => eprintln!("Failed to run rustfmt (is it installed?): {e}"),
     }
 
     Ok(())
