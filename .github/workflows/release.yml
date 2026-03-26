@@ -87,6 +87,15 @@ jobs:
           name: ${{ matrix.artifact-name }}
           path: ${{ matrix.artifact-path }}
 
+  publish-docker:
+    needs: build
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/publish-docker.yml
+    with:
+      version: ${{ inputs.tag || github.ref_name }}
+
   release:
     needs: build
     runs-on: ubuntu-latest
