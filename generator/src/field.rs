@@ -93,6 +93,28 @@ impl Field {
         }
     }
 
+    // Returns the type to use in the Q (query-string serialization) struct.
+    // Vec fields become Option<String> because serde_urlencoded cannot serialize sequences.
+    pub fn q_typ(&self) -> String {
+        if self.is_vec() {
+            "Option<String>".to_string()
+        } else {
+            self.typ()
+        }
+    }
+
+    // Returns the expression to assign this field in the Q struct.
+    // Vec fields are joined into a comma-separated string (or None if empty).
+    pub fn q_assign(&self) -> Tokens {
+        let name = self.name();
+        if self.is_vec() {
+            quote! { if self.$(name).is_empty() { None } else { Some(self.$(name).iter().map(|v| v.to_string()).collect::<Vec<_>>().join(",")) } }
+        } else {
+            let clone = self.clone_candidate();
+            quote! { self.$(name)$(clone) }
+        }
+    }
+
     pub fn name(&self) -> &str {
         &self.name
     }

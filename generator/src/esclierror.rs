@@ -112,7 +112,15 @@ pub(crate) fn generate() -> Tokens {
                             };
                             return EscliError::Execution(format!("Could not connect{url}: {cause}"));
                         }
-                        return EscliError::Execution(format!("Request failed: {e}"));
+                        // Walk the source chain — reqwest's top-level message
+                        // (e.g. "builder error") is often less informative than
+                        // the underlying cause.
+                        let cause = {
+                            let mut c: &dyn std::error::Error = e;
+                            while let Some(s) = c.source() { c = s; }
+                            c.to_string()
+                        };
+                        return EscliError::Execution(format!("Request failed: {cause}"));
                     }
                 }
                 EscliError::Execution(format!("Error: {value}"))
