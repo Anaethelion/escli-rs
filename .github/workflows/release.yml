@@ -119,6 +119,7 @@ jobs:
     uses: ./.github/workflows/publish-docker.yml
     with:
       version: ${{ inputs.tag || github.ref_name }}
+      binaries-provided: true
 
   release:
     needs: build

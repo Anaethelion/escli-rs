@@ -13,12 +13,17 @@ on:
         description: 'Version tag for the image (e.g., v1.2.3)'
         required: true
         type: string
+      binaries-provided:
+        description: 'Skip compilation — binaries are already available as artifacts'
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   # Compiles musl binaries when triggered manually.
   # Skipped on workflow_call — the release workflow already provides the artifacts.
   build-binaries:
-    if: github.event_name == 'workflow_dispatch'
+    if: ${{ !inputs.binaries-provided }}
     permissions:
       contents: read
     strategy:
