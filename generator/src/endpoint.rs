@@ -27,6 +27,10 @@ use regex::Regex;
 use std::cmp::Reverse;
 use std::collections::{HashMap, HashSet};
 use std::ops::Sub;
+use std::sync::LazyLock;
+
+static PATH_PARAM_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\{([^}]+)}").expect("regex failed to compile"));
 
 // Represents an API endpoint with its associated metadata and parameters.
 //
@@ -458,7 +462,7 @@ impl Endpoint {
                 if field.required() {
                     None
                 } else {
-                    Some(field.name().clone())
+                    Some(field.name().to_string())
                 }
             })
             .collect()
@@ -470,7 +474,6 @@ impl Endpoint {
         optional_parameters: &HashSet<String>,
     ) -> Vec<PathParameter> {
         let mut path_params: Vec<PathParameter> = vec![];
-        let re = Regex::new(r"\{([^}]+)}").expect("regex failed to compile");
         for url in &self.e.urls {
             if (self.e.name == "indices.put_alias" || self.e.name == "indices.delete_alias")
                 && url.path.contains("_aliases")
@@ -484,7 +487,7 @@ impl Endpoint {
             } else {
                 "GET".to_string()
             };
-            let params: HashSet<String> = re
+            let params: HashSet<String> = PATH_PARAM_RE
                 .captures_iter(&url.path)
                 .filter_map(|cap| cap.get(1).map(|cap| cap.as_str().to_string()))
                 .map(|f| match f.as_str() {
@@ -495,7 +498,7 @@ impl Endpoint {
             let endpoints_params: Vec<String> = self
                 .path_parameters
                 .iter()
-                .map(|f| f.name().clone())
+                .map(|f| f.name().to_string())
                 .collect();
             let tmp_params: HashSet<String> = HashSet::from_iter(endpoints_params.clone());
             for param in params.sub(&tmp_params) {
@@ -540,7 +543,7 @@ impl Endpoint {
             let parameters_list: Vec<String> = self
                 .path_parameters
                 .iter()
-                .map(|f| format!("&self.{}", f.name().clone()))
+                .map(|f| format!("&self.{}", f.name()))
                 .collect();
             let to_match = match parameters_list.len() {
                 1 => parameters_list[0].to_string(),
@@ -564,13 +567,13 @@ impl Endpoint {
     // # Returns
     //
     // A `Tokens` object representing the new command.
-    pub fn generate_new_command(self) -> Tokens {
+    pub fn generate_new_command(&self) -> Tokens {
         quote! {
             namespaces::$(&self.namespace())::$(&self.camel_case_name())::new_command(),$['\r']
         }
     }
 
-    pub fn generate_match_arm(self) -> Tokens {
+    pub fn generate_match_arm(&self) -> Tokens {
         quote! {
             ($(quoted(&self.namespace())), $(quoted(&self.short_name()))) => namespaces::$(&self.namespace())::$(&self.camel_case_name())::from_arg_matches(arg_matches)?.execute().await,$['\r']
         }
@@ -695,7 +698,7 @@ impl Endpoint {
     // # Returns
     //
     // A `Tokens` object representing the CLI command and execution logic.
-    pub fn generate(self) -> Tokens {
+    pub fn generate(&self) -> Tokens {
         quote! {
             #[derive(Parser)]
             #[command(name = $(quoted(&self.short_name())))]
@@ -753,7 +756,7 @@ impl Endpoint {
 
                     let q = Q {
                         $(for field in &self.query_parameters =>
-                            $(&field.original_field_name()): self.$(&field.name())$(&field.clone_candidate()),$['\r']
+                            $(&field.original_field_name()): self.$(field.name())$(&field.clone_candidate()),$['\r']
                         )
                     };
 
@@ -769,7 +772,7 @@ impl Endpoint {
                         }
                     }
 
-                    $(self.paths_selection)
+                    $(self.paths_selection.clone())
 
                     Ok(TransportArgs {
                         method,

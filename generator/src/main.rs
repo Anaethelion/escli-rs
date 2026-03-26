@@ -125,12 +125,12 @@ async fn main() -> Result<(), Error> {
         })
         .map(|e| endpoint::Endpoint::new(e, model))
         .collect();
-    endpoints.sort_by_key(|e| e.e.name.clone());
+    endpoints.sort_by(|a, b| a.e.name.cmp(&b.e.name));
 
     // Collect and sort unique namespaces
     let mut namespaces: Vec<String> = endpoints
         .iter()
-        .map(|e| e.namespace().clone())
+        .map(|e| e.namespace())
         .collect::<HashSet<_>>()
         .into_iter()
         .collect();
@@ -149,7 +149,7 @@ async fn main() -> Result<(), Error> {
         binpath.join("cmd.rs"),
         format!(
             "{LICENSE}\n{}",
-            cmd::generate(endpoints.clone()).to_string()?
+            cmd::generate(&endpoints).to_string()?
         ),
     )
     .await?;
@@ -199,14 +199,14 @@ async fn main() -> Result<(), Error> {
             .create(true)
             .open(file_path)
             .await?;
-        file.write_all(endpoint.clone().generate().to_string()?.as_ref())
+        file.write_all(endpoint.generate().to_string()?.as_ref())
             .await?;
         file.write_all(b"\n\n").await?;
 
         for (name, enum_) in endpoint.enums() {
             if rendered_enums.insert(name.name.to_string()) {
                 enums_file
-                    .write_all(enum_.clone().generate().to_string()?.as_ref())
+                    .write_all(enum_.generate().to_string()?.as_ref())
                     .await?;
                 enums_file.write_all(b"\n\n").await?;
             }
