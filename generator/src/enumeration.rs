@@ -26,45 +26,28 @@ use genco::prelude::*;
 pub(crate) struct Enum {
     // The name of the enumeration.
     name: String,
-    // The list of members in the enumeration.
-    members: Vec<String>,
+    // Each member is (wire_name, code_name).
+    // wire_name: the value sent over the wire (used in serde rename, Display, FromStr).
+    // code_name: the identifier used for the Rust variant (safe to convert to PascalCase).
+    members: Vec<(String, String)>,
 }
 
 impl Enum {
-    // Creates a new `Enum` instance.
-    //
-    // # Arguments
-    //
-    // * `name` - The name of the enumeration.
-    // * `members` - A vector of strings representing the members of the enumeration.
-    //
-    // # Returns
-    //
-    // A new `Enum` instance.
-    pub fn new(name: &str, members: Vec<String>) -> Self {
+    pub fn new(name: &str, members: Vec<(String, String)>) -> Self {
         Enum {
             name: name.to_string(),
             members,
         }
     }
 
-    // Generates the Rust code for the enumeration.
-    //
-    // This function creates the Rust code for the enum, including implementations
-    // for `std::fmt::Display` and `std::str::FromStr` traits. The generated enum
-    // supports serialization and deserialization.
-    //
-    // # Returns
-    //
-    // A `Tokens` object containing the generated Rust code.
-    pub fn generate(self) -> Tokens {
+    pub fn generate(&self) -> Tokens {
         quote! {
             // The enumeration definition.
             #[derive(Debug, Copy, Clone, Serialize)]
             pub enum $(&self.name) {
-                $(for member in &self.members =>
-                    #[serde(rename = $(quoted(member)) )]
-                    $(member.to_case(Case::Pascal)),$['\r']
+                $(for (wire, code) in &self.members =>
+                    #[serde(rename = $(quoted(wire)) )]
+                    $(code.to_case(Case::Pascal)),$['\r']
                 )
             }
 
@@ -73,8 +56,8 @@ impl Enum {
                 fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                     let s = match self {
                         $(
-                            for member in &self.members =>
-                            Self::$(member.to_case(Case::Pascal)) => $(quoted(member.to_case(Case::Lower))),$['\r']
+                            for (wire, code) in &self.members =>
+                            Self::$(code.to_case(Case::Pascal)) => $(quoted(wire)),$['\r']
                         )
                     };
                     write!(f, "{s}")
@@ -90,8 +73,8 @@ impl Enum {
                 fn from_str(s: &str) -> Result<Self, Self::Err> {
                     match s {
                         $(
-                            for member in &self.members =>
-                            $(quoted(member)) => Ok(Self::$(member.to_case(Case::Pascal))),$['\r']
+                            for (wire, code) in &self.members =>
+                            $(quoted(wire)) => Ok(Self::$(code.to_case(Case::Pascal))),$['\r']
                         )
                         _ => Err(format!("Invalid value for enum {}: {}", stringify!($(&self.name)), s)),
                     }
