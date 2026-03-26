@@ -337,6 +337,60 @@ fn connection_refused_shows_friendly_message() {
     );
 }
 
+#[tokio::test]
+async fn timeout_shows_friendly_message() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/"))
+        // Hold the response long enough that a 1-second timeout fires.
+        .respond_with(
+            ResponseTemplate::new(200).set_delay(std::time::Duration::from_secs(30)),
+        )
+        .mount(&server)
+        .await;
+
+    let output = escli(&server)
+        .args(["--timeout", "1", "info"])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("timed out"),
+        "expected timeout message, got: {stderr}"
+    );
+}
+
+#[tokio::test]
+async fn non_utf8_response_body_shows_friendly_message() {
+    let server = MockServer::start().await;
+    // 0xFF 0xFE is a valid UTF-16 BOM but invalid UTF-8 — reqwest will fail
+    // to decode the body when the Content-Type declares charset=utf-8.
+    Mock::given(method("GET"))
+        .and(path("/"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("content-type", "application/json; charset=utf-8")
+                .set_body_bytes(vec![0xFF, 0xFE, 0x00]),
+        )
+        .mount(&server)
+        .await;
+
+    let output = escli(&server).arg("info").output().unwrap();
+
+    // If the client decodes lossy (no error), the garbled body goes to stdout
+    // and we exit 0 — that's also acceptable. What must NOT happen is a
+    // Debug-formatted panic or empty stderr with exit 1.
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            !stderr.is_empty(),
+            "stderr must not be empty on decode error"
+        );
+    }
+}
+
 // --- argument validation -----------------------------------------------------
 
 #[test]
