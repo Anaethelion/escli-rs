@@ -122,6 +122,109 @@ async fn basic_auth_sends_authorization_header() {
     server.verify().await;
 }
 
+// --- environment variables ---------------------------------------------------
+
+#[tokio::test]
+async fn url_from_env_var() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/"))
+        .respond_with(ResponseTemplate::new(200).set_body_string("{}"))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    Command::cargo_bin("escli")
+        .unwrap()
+        .env("ESCLI_URL", server.uri())
+        .arg("info")
+        .assert()
+        .success();
+
+    server.verify().await;
+}
+
+#[tokio::test]
+async fn api_key_from_env_var() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/"))
+        .and(header_exists("authorization"))
+        .respond_with(ResponseTemplate::new(200).set_body_string("{}"))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    Command::cargo_bin("escli")
+        .unwrap()
+        .env("ESCLI_URL", server.uri())
+        .env("ESCLI_API_KEY", "myapikey")
+        .arg("info")
+        .assert()
+        .success();
+
+    server.verify().await;
+}
+
+// --- platform-specific -------------------------------------------------------
+
+/// On Windows the Console API can silently convert LF → CRLF when stdout is
+/// connected to a console, but when piped (as in tests) the bytes must be
+/// written as-is so that JSON stays valid.
+#[cfg(windows)]
+#[tokio::test]
+async fn windows_response_body_has_no_crlf() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/"))
+        .respond_with(ResponseTemplate::new(200).set_body_string("{\"a\":1\n}"))
+        .mount(&server)
+        .await;
+
+    let assert = escli(&server).arg("info").assert().success();
+    let stdout = &assert.get_output().stdout;
+    assert!(
+        !stdout.windows(2).any(|w| w == b"\r\n"),
+        "stdout contains CRLF: {:?}",
+        stdout
+    );
+}
+
+/// On Unix, writing to a closed pipe (e.g. `escli info | head -c 0`) must not
+/// print "Error writing to stdout" — the BrokenPipe error should be swallowed.
+#[cfg(unix)]
+#[tokio::test]
+async fn unix_broken_pipe_is_silent() {
+    use std::process::Stdio;
+
+    let server = MockServer::start().await;
+    // Return enough data that the write is likely to hit the broken pipe.
+    let body = "x".repeat(1 << 16);
+    Mock::given(method("GET"))
+        .and(path("/"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(body))
+        .mount(&server)
+        .await;
+
+    let bin = assert_cmd::cargo::cargo_bin("escli");
+    let mut child = std::process::Command::new(bin)
+        .args(["--url", &server.uri(), "info"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    // Drop the read end of stdout immediately to induce EPIPE.
+    drop(child.stdout.take());
+
+    let output = child.wait_with_output().unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stderr.contains("Error writing to stdout"),
+        "unexpected error on stderr: {stderr}"
+    );
+}
+
 // --- argument validation -----------------------------------------------------
 
 #[test]
