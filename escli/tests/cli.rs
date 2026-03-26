@@ -16,7 +16,7 @@
 // under the License.
 
 use assert_cmd::Command;
-use wiremock::matchers::{header_exists, method, path};
+use wiremock::matchers::{body_string, header_exists, method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 // --- helpers -----------------------------------------------------------------
@@ -223,6 +223,98 @@ async fn unix_broken_pipe_is_silent() {
         !stderr.contains("Error writing to stdout"),
         "unexpected error on stderr: {stderr}"
     );
+}
+
+// --- path parameters ---------------------------------------------------------
+
+#[tokio::test]
+async fn path_parameter_is_interpolated_into_url() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/my-index"))
+        .respond_with(ResponseTemplate::new(200).set_body_string("{}"))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    escli(&server)
+        .args(["indices", "get", "my-index"])
+        .assert()
+        .success();
+
+    server.verify().await;
+}
+
+// --- query string ------------------------------------------------------------
+
+#[tokio::test]
+async fn query_string_param_is_forwarded() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/my-index"))
+        .and(query_param("flat_settings", "true"))
+        .respond_with(ResponseTemplate::new(200).set_body_string("{}"))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    escli(&server)
+        .args(["indices", "get", "my-index", "--flat_settings", "true"])
+        .assert()
+        .success();
+
+    server.verify().await;
+}
+
+// --- request body ------------------------------------------------------------
+
+#[tokio::test]
+async fn body_is_sent_from_stdin() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/my-index/_create/1"))
+        .and(body_string(r#"{"foo":"bar"}"#))
+        .respond_with(ResponseTemplate::new(200).set_body_string("{}"))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    escli(&server)
+        .args(["core", "create", "my-index", "1"])
+        .write_stdin(r#"{"foo":"bar"}"#)
+        .assert()
+        .success();
+
+    server.verify().await;
+}
+
+// --- .env file ---------------------------------------------------------------
+
+#[tokio::test]
+async fn dotenv_file_is_loaded() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/"))
+        .respond_with(ResponseTemplate::new(200).set_body_string("{}"))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let dir = tempfile::TempDir::new().unwrap();
+    std::fs::write(
+        dir.path().join(".env"),
+        format!("ESCLI_URL={}\n", server.uri()),
+    )
+    .unwrap();
+
+    Command::cargo_bin("escli")
+        .unwrap()
+        .current_dir(dir.path())
+        .arg("info")
+        .assert()
+        .success();
+
+    server.verify().await;
 }
 
 // --- argument validation -----------------------------------------------------
