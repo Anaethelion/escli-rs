@@ -317,6 +317,26 @@ async fn dotenv_file_is_loaded() {
     server.verify().await;
 }
 
+// --- connection errors -------------------------------------------------------
+
+/// Port 1 is privileged and never listening; this reliably triggers ECONNREFUSED.
+#[test]
+fn connection_refused_shows_friendly_message() {
+    let output = Command::cargo_bin("escli")
+        .unwrap()
+        .args(["--url", "http://127.0.0.1:1", "info"])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(!stderr.is_empty(), "stderr must not be empty on connection error");
+    assert!(
+        stderr.contains("Could not connect"),
+        "expected friendly message, got: {stderr}"
+    );
+}
+
 // --- argument validation -----------------------------------------------------
 
 #[test]
