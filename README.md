@@ -113,13 +113,17 @@ You can build and run the escli container locally. By default, the Dockerfile bu
 docker build -t escli:latest .
 ```
 
-### Recommended: Use an alias for escli via Docker
+### Recommended: Use a wrapper script for escli via Docker
 
-You can set up an alias to run escli as a Docker container, passing environment variables from your host and using the host network:
+Save the following as `escli` somewhere on your `PATH` (e.g. `/usr/local/bin/escli`) and make it executable (`chmod +x`):
 
 ```sh
-alias escli="docker run --network host -i --rm -e ESCLI_URL -e ESCLI_API_KEY ghcr.io/anaethelion/escli:latest"
+#!/bin/sh
+[ -t 0 ] && exec docker run --network host -it --rm -e ESCLI_URL -e ESCLI_API_KEY ghcr.io/anaethelion/escli:latest "$@"
+exec docker run --network host -i --rm -e ESCLI_URL -e ESCLI_API_KEY ghcr.io/anaethelion/escli:latest "$@"
 ```
+
+The script adds `-t` when stdin is a terminal (so commands like `search` that optionally read a body don't hang) and falls back to `-i` when stdin is piped (so body input still works).
 
 Then, set your environment variables on the host and use escli as if it were installed locally:
 
