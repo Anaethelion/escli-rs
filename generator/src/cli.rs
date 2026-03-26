@@ -191,7 +191,7 @@ pub fn generate() -> Tokens {
                 Ok(res) => {
                     let istatus_code = res.status_code().as_u16() as i32;
                     let headers = res.headers().clone();
-                    let body = match res.text().await {
+                    let body = match res.bytes().await {
                         Ok(b) => b,
                         Err(e) => {
                             let msg = format!("{}\n", error::EscliError::from(e));
@@ -218,7 +218,7 @@ pub fn generate() -> Tokens {
                     // Is status code 2xx or 3xx, write the body to stdout
                     // Otherwise, write the body to stderr
                     if (200..400).contains(&istatus_code) {
-                        match stdout.write_all(body.as_bytes()).await {
+                        match stdout.write_all(&body).await {
                             Err(e) if e.kind() != io::ErrorKind::BrokenPipe => {
                                 tokio::io::stderr()
                                     .write_all(format!("Error writing to stdout: {e}").as_bytes())
@@ -229,7 +229,7 @@ pub fn generate() -> Tokens {
                             }
                         }
                     } else {
-                        if let Err(e) = stderr.write_all(body.as_bytes()).await {
+                        if let Err(e) = stderr.write_all(&body).await {
                             if e.kind() != io::ErrorKind::BrokenPipe {
                                 tokio::io::stderr()
                                     .write_all(format!("Error writing to stderr: {e}").as_bytes())
