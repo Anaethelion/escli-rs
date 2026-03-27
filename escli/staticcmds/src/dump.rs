@@ -278,7 +278,10 @@ impl Dump {
                 .send()
                 .await?;
 
-            let initial_documents = match initial_search.json::<SearchResultsVariant>().await? {
+            let initial_bytes = initial_search.bytes().await?;
+            let initial_documents = match serde_json::from_slice::<SearchResultsVariant>(&initial_bytes)
+                .map_err(|e| IoError::new(IoErrorKind::InvalidData, e))?
+            {
                 SearchResultsVariant::Success(docs) => docs,
                 SearchResultsVariant::Error(err) => {
                     eprintln!(
@@ -288,6 +291,12 @@ impl Dump {
                     continue;
                 }
             };
+
+            if initial_documents.hits.hits.is_empty() {
+                output.write_all(&initial_bytes).await?;
+                output.flush().await?;
+                continue;
+            }
 
             persist_ndjson(&initial_documents, index, self.skip_index_name, self.add_id, &mut output).await?;
 

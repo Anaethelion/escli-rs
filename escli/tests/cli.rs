@@ -449,11 +449,11 @@ async fn dump_opens_pit_and_calls_search() {
         .mount(&server)
         .await;
 
-    // Dump always makes an initial search + one pagination check before breaking.
+    // When the initial search is empty, dump skips the pagination loop entirely.
     Mock::given(method("POST"))
         .and(path("/_search"))
         .respond_with(ResponseTemplate::new(200).set_body_string(EMPTY_SEARCH))
-        .expect(2)
+        .expect(1)
         .mount(&server)
         .await;
 
@@ -463,6 +463,31 @@ async fn dump_opens_pit_and_calls_search() {
         .success();
 
     server.verify().await;
+}
+
+#[tokio::test]
+async fn dump_empty_result_writes_raw_response_to_stdout() {
+    let server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/my-index/_pit"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(PIT_OK))
+        .mount(&server)
+        .await;
+
+    Mock::given(method("POST"))
+        .and(path("/_search"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(EMPTY_SEARCH))
+        .mount(&server)
+        .await;
+
+    let output = escli(&server)
+        .args(["utils", "dump", "my-index"])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    assert_eq!(String::from_utf8(output.stdout).unwrap(), EMPTY_SEARCH);
 }
 
 #[tokio::test]
