@@ -42,7 +42,7 @@ jobs:
   # Skipped on workflow_call — the release workflow already provides the artifacts.
   build-binaries:
     needs: generate
-    if: always() && (needs.generate.result == 'success' || needs.generate.result == 'skipped')
+    if: ${{ !inputs.binaries-provided && (needs.generate.result == 'success' || needs.generate.result == 'skipped') }}
     permissions:
       contents: read
     strategy:
