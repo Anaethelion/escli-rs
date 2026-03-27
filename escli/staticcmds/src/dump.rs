@@ -69,7 +69,7 @@ pub struct Dump {
 
     #[arg(
         long,
-        help = "Path to a JSON query file to filter documents (use - to read from stdin)",
+        help = "Path to a file containing an Elasticsearch query clause to filter documents (use - for stdin)",
         value_name = "FILE"
     )]
     query: Option<PathBuf>,
@@ -212,8 +212,23 @@ impl Dump {
             The command also supports specifying a keep-alive duration for the PIT.
             The default keep-alive duration is 1 minute.
 
+            The --query flag accepts a path to a file containing an Elasticsearch
+            query clause (not a full search body). For example, to export only
+            documents where status is "active", create a file query.json:
+
+                { "term": { "status": "active" } }
+
+            Then run:
+                escli utils dump my-index --query query.json
+
+            Use - to read the query from stdin:
+                cat query.json | escli utils dump my-index --query -
+
             Example usage:
                 escli utils dump index1,index2 --size 1000 --keep-alive 5m
+                escli utils dump my-index --query query.json
+                escli utils dump my-index --skip-index-name | escli utils load --index new-index
+                escli utils dump my-index --add-id | escli utils load --index my-index
             "#,
             )
     }
