@@ -25,7 +25,7 @@ use serde_json::Value;
 use std::path::PathBuf;
 use std::time::Duration;
 use tokio::fs;
-use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncRead, BufReader};
 
 const DEFAULT_BATCH_SIZE: usize = 500;
 
@@ -37,8 +37,8 @@ pub enum Format {
 
 #[derive(Parser, Debug)]
 pub struct Load {
-    #[arg(help = "Path to the file to ingest")]
-    file: PathBuf,
+    #[arg(help = "Path to the file to load, or - to read from stdin (default when omitted)")]
+    file: Option<PathBuf>,
 
     #[arg(
         short,
@@ -130,8 +130,14 @@ impl Load {
     ) -> Result<Response, elasticsearch::Error> {
         let t = timeout.unwrap_or(Duration::from_secs(60));
 
+        let is_stdin = self.file.as_ref().map_or(true, |p| p.as_os_str() == "-");
+
         let format = self.format.unwrap_or_else(|| {
-            match self.file.extension().and_then(|e| e.to_str()) {
+            if is_stdin {
+                eprintln!("Warning: reading from stdin with no --format; assuming NDJSON. Use --format to override.");
+                return Format::Ndjson;
+            }
+            match self.file.as_ref().unwrap().extension().and_then(|e| e.to_str()) {
                 Some("ndjson") => Format::Ndjson,
                 Some("json" | "jsonl") => Format::Json,
                 other => {
@@ -156,12 +162,23 @@ impl Load {
         let mut headers = HeaderMap::new();
         headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/x-ndjson"));
 
+        let input: Box<dyn AsyncRead + Unpin> = if is_stdin {
+            Box::new(tokio::io::stdin())
+        } else {
+            let file_path = self.file.as_ref().unwrap();
+            Box::new(fs::File::open(file_path).await.map_err(|e| {
+                eprintln!("Failed to open file {:?}: {}", file_path, e);
+                e
+            })?)
+        };
+        let mut reader = BufReader::new(input);
+
         let (total_indexed, total_errors, total_batches, total_http_errors) = match format {
             Format::Json => {
-                self.load_json(&transport, &path, &headers, t).await?
+                self.load_json(&mut reader, &transport, &path, &headers, t).await?
             }
             Format::Ndjson => {
-                self.load_ndjson(&transport, &path, &headers, t).await?
+                self.load_ndjson(&mut reader, &transport, &path, &headers, t).await?
             }
         };
 
@@ -183,6 +200,7 @@ impl Load {
     /// line-by-line so arbitrarily large files can be ingested.
     async fn load_json(
         &self,
+        reader: &mut (impl AsyncBufReadExt + Unpin),
         transport: &Transport,
         path: &str,
         headers: &HeaderMap,
@@ -195,11 +213,6 @@ impl Load {
 
         let action_line = serde_json::to_string(&serde_json::json!({ "index": { "_index": index } })).unwrap();
 
-        let file = fs::File::open(&self.file).await.map_err(|e| {
-            eprintln!("Failed to open file {:?}: {}", self.file, e);
-            e
-        })?;
-        let reader = BufReader::new(file);
         let mut lines = reader.lines();
 
         let mut total_indexed: usize = 0;
@@ -248,16 +261,12 @@ impl Load {
     /// arbitrarily large files without loading them entirely into memory.
     async fn load_ndjson(
         &self,
+        reader: &mut (impl AsyncBufReadExt + Unpin),
         transport: &Transport,
         path: &str,
         headers: &HeaderMap,
         timeout: Duration,
     ) -> Result<(usize, usize, usize, usize), elasticsearch::Error> {
-        let file = fs::File::open(&self.file).await.map_err(|e| {
-            eprintln!("Failed to open file {:?}: {}", self.file, e);
-            e
-        })?;
-        let reader = BufReader::new(file);
         let mut lines = reader.lines();
 
         let lines_per_batch = self.size * 2;

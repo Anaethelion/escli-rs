@@ -539,6 +539,65 @@ async fn load_bulk_errors_are_reported_on_stderr() {
 }
 
 #[tokio::test]
+async fn load_ndjson_from_stdin() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/_bulk"))
+        .and(header("content-type", "application/x-ndjson"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(BULK_OK))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    escli(&server)
+        .args(["utils", "load"])
+        .write_stdin("{\"index\":{\"_index\":\"my-index\"}}\n{\"field\":\"value\"}\n")
+        .assert()
+        .success();
+
+    server.verify().await;
+}
+
+#[tokio::test]
+async fn load_json_from_stdin_with_format_flag() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/my-index/_bulk"))
+        .and(header("content-type", "application/x-ndjson"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(BULK_OK))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    escli(&server)
+        .args(["utils", "load", "--format", "json", "--index", "my-index"])
+        .write_stdin("{\"field\":\"value\"}\n")
+        .assert()
+        .success();
+
+    server.verify().await;
+}
+
+#[tokio::test]
+async fn load_stdin_explicit_dash() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/_bulk"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(BULK_OK))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    escli(&server)
+        .args(["utils", "load", "-"])
+        .write_stdin("{\"index\":{\"_index\":\"my-index\"}}\n{\"field\":\"value\"}\n")
+        .assert()
+        .success();
+
+    server.verify().await;
+}
+
+#[tokio::test]
 async fn load_bulk_http_error_exits_1() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
