@@ -84,7 +84,7 @@ struct PontInTime {
 #[serde(untagged)]
 enum PointInTimeVariant {
     Success(PontInTime),
-    Error(Box<ElasticsearchError>),
+    Error(Value),
 }
 
 #[derive(Deserialize, Debug)]
@@ -97,7 +97,7 @@ struct SearchResult {
 #[serde(untagged)]
 enum SearchResultsVariant {
     Success(SearchResult),
-    Error(Box<ElasticsearchError>),
+    Error(Value),
 }
 
 #[derive(Deserialize, Debug)]
@@ -147,48 +147,6 @@ impl AsyncWrite for Output {
     }
 }
 
-#[derive(Deserialize, Debug)]
-#[allow(dead_code)]
-struct CausedBy {
-    r#type: String,
-    reason: String,
-    caused_by: RootCause,
-}
-
-#[derive(Deserialize, Debug)]
-#[allow(dead_code)]
-struct FailedShard {
-    shard: i64,
-    index: String,
-    node: String,
-    reason: RootCause,
-}
-
-#[derive(Deserialize, Debug)]
-#[allow(dead_code)]
-struct RootCause {
-    r#type: String,
-    reason: String,
-}
-
-#[derive(Deserialize, Debug)]
-#[allow(dead_code)]
-struct EsError {
-    root_cause: Vec<RootCause>,
-    r#type: String,
-    reason: String,
-    phase: String,
-    grouped: bool,
-    failed_shards: Vec<FailedShard>,
-    caused_by: CausedBy,
-}
-
-#[derive(Deserialize, Debug)]
-#[allow(dead_code)]
-struct ElasticsearchError {
-    error: EsError,
-    status: i64,
-}
 
 impl Dump {
     pub fn new_command() -> Command {
