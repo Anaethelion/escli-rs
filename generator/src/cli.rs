@@ -40,7 +40,7 @@ pub fn generate() -> Tokens {
         use tokio::io::AsyncWriteExt;
         use clap::error::ErrorKind;
         use clap::{FromArgMatches as _, Parser, ArgAction};
-        use dotenv::dotenv;
+        use dotenv::{dotenv, from_path};
         use elasticsearch::cert::CertificateValidation;
         use elasticsearch::http::Url;
         use elasticsearch::http::transport::{SingleNodeConnectionPool, TransportBuilder};
@@ -72,6 +72,9 @@ pub fn generate() -> Tokens {
 
             #[clap(action=ArgAction::SetTrue, default_value_t=false, short, long, env = "ESCLI_VERBOSE", help = "Enable verbose output", long_help = "Enable verbose output for debugging purposes. This will print additional information about the requests and responses.")]
             verbose: bool,
+
+            #[clap(long, help = "Load credentials and settings from this env file instead of .env")]
+            env_file: Option<std::path::PathBuf>,
         }
 
         // Entry point for the CLI application.
@@ -85,7 +88,18 @@ pub fn generate() -> Tokens {
         #[tokio::main]
         async fn main() {
             clap_complete::CompleteEnv::with_factory(cmd::command).complete();
-            dotenv().ok();
+
+            // Pre-scan args for --env-file before clap parses, because clap reads
+            // env vars that dotenv must set first.
+            let _args: Vec<String> = std::env::args().collect();
+            let _env_file_path = _args.windows(2)
+                .find(|w| w[0] == "--env-file")
+                .map(|w| std::path::PathBuf::from(&w[1]));
+            if let Some(ref path) = _env_file_path {
+                from_path(path).ok();
+            } else {
+                dotenv().ok();
+            }
 
             let mut cmd = cmd::command();
             let matches = cmd.clone().get_matches();
