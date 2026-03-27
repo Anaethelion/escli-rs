@@ -19,7 +19,7 @@ jobs:
     outputs:
       sha: ${{ steps.push.outputs.sha }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: main
       - name: Bump version in Cargo.toml
@@ -48,14 +48,14 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: ${{ needs.bump-version.outputs.sha }}
       - uses: Swatinem/rust-cache@v2
       - name: Generate
         run: cargo run -p generator --profile release
       - name: Upload generated source
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: generated-src
           path: escli/src/
@@ -86,12 +86,12 @@ jobs:
     name: Build on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: ${{ needs.bump-version.outputs.sha }}
       - uses: Swatinem/rust-cache@v2
       - name: Download generated source
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: generated-src
           path: escli/src/
@@ -106,7 +106,7 @@ jobs:
           TARGET="${{ matrix.cargo-target }}"
           cargo build -p escli --profile release ${TARGET:+--target $TARGET}
       - name: Upload Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.artifact-name }}
           path: ${{ matrix.artifact-path }}
@@ -128,7 +128,7 @@ jobs:
       contents: write
     steps:
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: artifacts
 
