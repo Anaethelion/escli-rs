@@ -300,13 +300,15 @@ impl Dump {
                 .copied();
 
             loop {
-                let payload = json!({
+                let mut payload = json!({
                     "size": self.size,
                     "pit": { "id": next_pit, "keep_alive": self.keep_alive },
                     "query": query,
-                    "sort": [{ "_shard_doc": { "order": "asc" } }],
-                    "search_after": next_search_after.map(|x| vec![x]).unwrap_or_default()
+                    "sort": [{ "_shard_doc": { "order": "asc" } }]
                 });
+                if let Some(sa) = next_search_after {
+                    payload["search_after"] = json!([sa]);
+                }
 
                 let search_response = client
                     .search(SearchParts::None)
