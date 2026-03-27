@@ -694,6 +694,55 @@ async fn dump_add_id_includes_id_in_action() {
     assert!(stdout.contains(r#""_index":"my-index""#), "action line should still contain _index");
 }
 
+#[tokio::test]
+async fn dump_query_from_file_succeeds() {
+    let server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/my-index/_pit"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(PIT_OK))
+        .mount(&server)
+        .await;
+
+    Mock::given(method("POST"))
+        .and(path("/_search"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(ONE_DOC_SEARCH))
+        .up_to_n_times(1)
+        .mount(&server)
+        .await;
+
+    Mock::given(method("POST"))
+        .and(path("/_search"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(EMPTY_SEARCH))
+        .mount(&server)
+        .await;
+
+    let dir = tempfile::TempDir::new().unwrap();
+    let query_file = dir.path().join("query.json");
+    std::fs::write(&query_file, r#"{"term":{"field":"value"}}"#).unwrap();
+
+    let output = escli(&server)
+        .args(["utils", "dump", "my-index", "--query", query_file.to_str().unwrap()])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains(r#"{"field":"value"}"#));
+}
+
+#[tokio::test]
+async fn dump_query_bad_file_exits_1() {
+    let server = MockServer::start().await;
+
+    let output = escli(&server)
+        .args(["utils", "dump", "my-index", "--query", "/nonexistent/query.json"])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+}
+
 // --- utils load --------------------------------------------------------------
 
 const BULK_OK: &str = r#"{"errors":false,"items":[{"index":{"status":200}}]}"#;

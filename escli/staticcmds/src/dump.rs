@@ -28,7 +28,7 @@ use std::task::{Context, Poll};
 use std::time::Duration;
 use tokio::fs::{File, OpenOptions};
 use tokio::io::Stdout;
-use tokio::io::{AsyncWrite, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 
 #[derive(Parser, Debug)]
 pub struct Dump {
@@ -66,6 +66,13 @@ pub struct Dump {
 
     #[arg(long, help = "Include the document _id in action lines")]
     add_id: bool,
+
+    #[arg(
+        long,
+        help = "Path to a file containing an Elasticsearch query clause to filter documents (use - for stdin)",
+        value_name = "FILE"
+    )]
+    query: Option<PathBuf>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -205,8 +212,23 @@ impl Dump {
             The command also supports specifying a keep-alive duration for the PIT.
             The default keep-alive duration is 1 minute.
 
+            The --query flag accepts a path to a file containing an Elasticsearch
+            query clause (not a full search body). For example, to export only
+            documents where status is "active", create a file query.json:
+
+                { "term": { "status": "active" } }
+
+            Then run:
+                escli utils dump my-index --query query.json
+
+            Use - to read the query from stdin:
+                cat query.json | escli utils dump my-index --query -
+
             Example usage:
                 escli utils dump index1,index2 --size 1000 --keep-alive 5m
+                escli utils dump my-index --query query.json
+                escli utils dump my-index --skip-index-name | escli utils load --index new-index
+                escli utils dump my-index --add-id | escli utils load --index my-index
             "#,
             )
     }
@@ -219,6 +241,30 @@ impl Dump {
         let client = Elasticsearch::new(transport);
         let indices: Vec<&str> = self.indices.iter().map(String::as_str).collect();
         let t = timeout.unwrap_or(Duration::from_secs(60));
+
+        let query: Value = match &self.query {
+            None => json!({ "match_all": {} }),
+            Some(path) => {
+                let is_stdin = path.as_os_str() == "-";
+                let input: Box<dyn AsyncRead + Unpin> = if is_stdin {
+                    Box::new(tokio::io::stdin())
+                } else {
+                    Box::new(File::open(path).await.map_err(|e| {
+                        eprintln!("Failed to open query file {:?}: {}", path, e);
+                        e
+                    })?)
+                };
+                let mut buf = String::new();
+                BufReader::new(input).read_to_string(&mut buf).await.map_err(|e| {
+                    eprintln!("Failed to read query: {}", e);
+                    e
+                })?;
+                serde_json::from_str(&buf).map_err(|e| {
+                    eprintln!("Failed to parse query JSON: {}", e);
+                    IoError::new(IoErrorKind::InvalidData, e)
+                })?
+            }
+        };
 
         let mut output = match self.output {
             Some(ref path) => {
@@ -268,7 +314,7 @@ impl Dump {
                 .body(json!({
                     "size": self.size,
                     "pit": { "id": initial_pit.id, "keep_alive": self.keep_alive },
-                    "query": { "match_all": {} },
+                    "query": query,
                     "sort": [{ "_shard_doc": { "order": "asc" } }]
                 }))
                 .send()
@@ -299,7 +345,7 @@ impl Dump {
                 let payload = json!({
                     "size": self.size,
                     "pit": { "id": next_pit, "keep_alive": self.keep_alive },
-                    "query": { "match_all": {} },
+                    "query": query,
                     "sort": [{ "_shard_doc": { "order": "asc" } }],
                     "search_after": next_search_after.map(|x| vec![x]).unwrap_or_default()
                 });
