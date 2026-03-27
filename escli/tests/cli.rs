@@ -16,7 +16,7 @@
 // under the License.
 
 use assert_cmd::Command;
-use wiremock::matchers::{body_string, header_exists, method, path, query_param};
+use wiremock::matchers::{body_string, header, header_exists, method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 // --- helpers -----------------------------------------------------------------
@@ -430,6 +430,200 @@ async fn binary_response_bytes_are_not_utf8_encoded() {
         output.stdout, arrow_bytes,
         "stdout bytes were corrupted (UTF-8 encoding applied to binary response)"
     );
+}
+
+// --- utils load --------------------------------------------------------------
+
+const BULK_OK: &str = r#"{"errors":false,"items":[{"index":{"status":200}}]}"#;
+
+#[tokio::test]
+async fn load_json_lines_posts_to_index_bulk() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/my-index/_bulk"))
+        .and(header("content-type", "application/x-ndjson"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(BULK_OK))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let dir = tempfile::TempDir::new().unwrap();
+    let file = dir.path().join("docs.json");
+    std::fs::write(&file, "{\"field\":\"value\"}\n").unwrap();
+
+    escli(&server)
+        .args(["utils", "load", "--index", "my-index", file.to_str().unwrap()])
+        .assert()
+        .success();
+
+    server.verify().await;
+}
+
+#[tokio::test]
+async fn load_ndjson_posts_to_bulk() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/_bulk"))
+        .and(header("content-type", "application/x-ndjson"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(BULK_OK))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let dir = tempfile::TempDir::new().unwrap();
+    let file = dir.path().join("docs.ndjson");
+    std::fs::write(
+        &file,
+        "{\"index\":{\"_index\":\"my-index\"}}\n{\"field\":\"value\"}\n",
+    )
+    .unwrap();
+
+    escli(&server)
+        .args(["utils", "load", file.to_str().unwrap()])
+        .assert()
+        .success();
+
+    server.verify().await;
+}
+
+#[tokio::test]
+async fn load_with_pipeline_includes_query_param() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/my-index/_bulk"))
+        .and(query_param("pipeline", "my-pipeline"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(BULK_OK))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let dir = tempfile::TempDir::new().unwrap();
+    let file = dir.path().join("docs.json");
+    std::fs::write(&file, "{\"field\":\"value\"}\n").unwrap();
+
+    escli(&server)
+        .args([
+            "utils", "load",
+            "--index", "my-index",
+            "--pipeline", "my-pipeline",
+            file.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    server.verify().await;
+}
+
+#[tokio::test]
+async fn load_bulk_errors_are_reported_on_stderr() {
+    let server = MockServer::start().await;
+    let bulk_err = r#"{"errors":true,"items":[{"index":{"status":400,"error":{"type":"mapper_exception","reason":"failed to parse"}}}]}"#;
+    Mock::given(method("POST"))
+        .and(path("/my-index/_bulk"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(bulk_err))
+        .mount(&server)
+        .await;
+
+    let dir = tempfile::TempDir::new().unwrap();
+    let file = dir.path().join("docs.json");
+    std::fs::write(&file, "{\"field\":\"value\"}\n").unwrap();
+
+    let output = escli(&server)
+        .args(["utils", "load", "--index", "my-index", file.to_str().unwrap()])
+        .output()
+        .unwrap();
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(!output.status.success(), "expected exit 1 on bulk errors");
+    assert!(stderr.contains("Error"), "expected error details on stderr, got: {stderr}");
+}
+
+#[tokio::test]
+async fn load_bulk_http_error_exits_1() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/my-index/_bulk"))
+        .respond_with(ResponseTemplate::new(503).set_body_string("Service Unavailable"))
+        .mount(&server)
+        .await;
+
+    let dir = tempfile::TempDir::new().unwrap();
+    let file = dir.path().join("docs.json");
+    std::fs::write(&file, "{\"field\":\"value\"}\n").unwrap();
+
+    escli(&server)
+        .args(["utils", "load", "--index", "my-index", file.to_str().unwrap()])
+        .assert()
+        .failure()
+        .code(1);
+}
+
+#[tokio::test]
+async fn load_multiple_batches_sends_multiple_requests() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/my-index/_bulk"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(BULK_OK))
+        .expect(2)
+        .mount(&server)
+        .await;
+
+    let dir = tempfile::TempDir::new().unwrap();
+    let file = dir.path().join("docs.json");
+    std::fs::write(&file, "{\"a\":1}\n{\"a\":2}\n").unwrap();
+
+    escli(&server)
+        .args(["utils", "load", "--index", "my-index", "--size", "1", file.to_str().unwrap()])
+        .assert()
+        .success();
+
+    server.verify().await;
+}
+
+#[tokio::test]
+async fn load_format_override_treats_file_as_json() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/my-index/_bulk"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(BULK_OK))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let dir = tempfile::TempDir::new().unwrap();
+    let file = dir.path().join("data.txt");
+    std::fs::write(&file, "{\"field\":\"value\"}\n").unwrap();
+
+    escli(&server)
+        .args(["utils", "load", "--index", "my-index", "--format", "json", file.to_str().unwrap()])
+        .assert()
+        .success();
+
+    server.verify().await;
+}
+
+#[test]
+fn load_file_not_found_fails() {
+    Command::cargo_bin("escli")
+        .unwrap()
+        .args(["--url", "http://127.0.0.1:1", "utils", "load", "--index", "my-index", "/tmp/does-not-exist-escli-test.json"])
+        .assert()
+        .failure()
+        .code(1);
+}
+
+#[test]
+fn load_json_without_index_fails() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let file = dir.path().join("docs.json");
+    std::fs::write(&file, "{\"field\":\"value\"}\n").unwrap();
+
+    Command::cargo_bin("escli")
+        .unwrap()
+        .args(["--url", "http://127.0.0.1:1", "utils", "load", file.to_str().unwrap()])
+        .assert()
+        .failure()
+        .code(1);
 }
 
 // --- argument validation -----------------------------------------------------
