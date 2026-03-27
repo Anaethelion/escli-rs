@@ -63,6 +63,9 @@ pub struct Dump {
         help = "Omit the index name from action lines (produces {\"index\":{}} instead of {\"index\":{\"_index\":\"...\"}})"
     )]
     skip_index_name: bool,
+
+    #[arg(long, help = "Include the document _id in action lines")]
+    add_id: bool,
 }
 
 #[derive(Deserialize, Debug)]
@@ -97,6 +100,7 @@ struct Hits {
 
 #[derive(Serialize, Deserialize, Debug)]
 struct Hit {
+    _id: String,
     _source: Value,
     sort: Vec<u64>,
 }
@@ -281,7 +285,7 @@ impl Dump {
                 }
             };
 
-            persist_ndjson(&initial_documents, index, self.skip_index_name, &mut output).await?;
+            persist_ndjson(&initial_documents, index, self.skip_index_name, self.add_id, &mut output).await?;
 
             let mut next_pit = initial_documents.pit_id;
             let mut next_search_after = initial_documents
@@ -318,7 +322,7 @@ impl Dump {
                 if documents.hits.hits.is_empty() {
                     break;
                 } else {
-                    persist_ndjson(&documents, index, self.skip_index_name, &mut output).await?;
+                    persist_ndjson(&documents, index, self.skip_index_name, self.add_id, &mut output).await?;
                 }
 
                 next_pit = documents.pit_id;
@@ -361,13 +365,19 @@ async fn persist_ndjson(
     result: &SearchResult,
     index: &str,
     skip_index_name: bool,
+    add_id: bool,
     output: &mut (impl AsyncWrite + Unpin),
 ) -> Result<(), IoError> {
     for doc in result.hits.hits.iter() {
-        let action_line = if skip_index_name {
-            json!({ "index": {} })
-        } else {
-            json!({ "index": { "_index": index } })
+        let action_line = {
+            let mut meta = serde_json::Map::new();
+            if !skip_index_name {
+                meta.insert("_index".to_string(), json!(index));
+            }
+            if add_id {
+                meta.insert("_id".to_string(), json!(doc._id));
+            }
+            json!({ "index": meta })
         };
 
         let action_s =
@@ -395,10 +405,12 @@ mod tests {
             hits: Hits {
                 hits: vec![
                     Hit {
+                        _id: "id1".to_string(),
                         _source: json!({"field": "value1"}),
                         sort: vec![1],
                     },
                     Hit {
+                        _id: "id2".to_string(),
                         _source: json!({"field": "value2"}),
                         sort: vec![2],
                     },
@@ -411,7 +423,7 @@ mod tests {
     async fn test_persist_ndjson() {
         let search_result = create_sample_search_result();
         let mut output = Cursor::new(Vec::new());
-        persist_ndjson(&search_result, "test_index", false, &mut output).await.unwrap();
+        persist_ndjson(&search_result, "test_index", false, false, &mut output).await.unwrap();
         let output_str = String::from_utf8(output.into_inner()).unwrap();
         let expected_output = r#"{"index":{"_index":"test_index"}}
 {"field":"value1"}
@@ -425,11 +437,25 @@ mod tests {
     async fn test_persist_ndjson_skip_index_name() {
         let search_result = create_sample_search_result();
         let mut output = Cursor::new(Vec::new());
-        persist_ndjson(&search_result, "test_index", true, &mut output).await.unwrap();
+        persist_ndjson(&search_result, "test_index", true, false, &mut output).await.unwrap();
         let output_str = String::from_utf8(output.into_inner()).unwrap();
         let expected_output = r#"{"index":{}}
 {"field":"value1"}
 {"index":{}}
+{"field":"value2"}
+"#;
+        assert_eq!(output_str, expected_output);
+    }
+
+    #[tokio::test]
+    async fn test_persist_ndjson_add_id() {
+        let search_result = create_sample_search_result();
+        let mut output = Cursor::new(Vec::new());
+        persist_ndjson(&search_result, "test_index", false, true, &mut output).await.unwrap();
+        let output_str = String::from_utf8(output.into_inner()).unwrap();
+        let expected_output = r#"{"index":{"_id":"id1","_index":"test_index"}}
+{"field":"value1"}
+{"index":{"_id":"id2","_index":"test_index"}}
 {"field":"value2"}
 "#;
         assert_eq!(output_str, expected_output);
@@ -442,6 +468,7 @@ mod tests {
             hits: Hits {
                 hits: (0..10_000)
                     .map(|i| Hit {
+                        _id: format!("id{}", i),
                         _source: json!({ "field": format!("value{}", i) }),
                         sort: vec![i as u64],
                     })
@@ -449,7 +476,7 @@ mod tests {
             },
         };
         let mut output = Cursor::new(Vec::new());
-        persist_ndjson(&result, "test_index", false, &mut output).await.unwrap();
+        persist_ndjson(&result, "test_index", false, false, &mut output).await.unwrap();
         let output_str = String::from_utf8(output.into_inner()).unwrap();
         let lines: Vec<&str> = output_str.lines().collect();
         assert_eq!(lines.len(), 20_000); // Each document has an action line
@@ -469,10 +496,12 @@ mod tests {
             hits: Hits {
                 hits: vec![
                     Hit {
+                        _id: "id3".to_string(),
                         _source: json!({"field": "value3"}),
                         sort: vec![3],
                     },
                     Hit {
+                        _id: "id4".to_string(),
                         _source: json!({"field": "value4"}),
                         sort: vec![4],
                     },
@@ -481,8 +510,8 @@ mod tests {
         };
 
         let mut output = Cursor::new(Vec::new());
-        persist_ndjson(&search_result1, "index1", false, &mut output).await.unwrap();
-        persist_ndjson(&search_result2, "index2", false, &mut output).await.unwrap();
+        persist_ndjson(&search_result1, "index1", false, false, &mut output).await.unwrap();
+        persist_ndjson(&search_result2, "index2", false, false, &mut output).await.unwrap();
         let output_str = String::from_utf8(output.into_inner()).unwrap();
         let expected_output = r#"{"index":{"_index":"index1"}}
 {"field":"value1"}
