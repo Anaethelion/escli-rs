@@ -16,15 +16,17 @@
 // under the License.
 
 mod dump;
+mod load;
 
 pub use crate::dump::Dump;
+pub use crate::load::Load;
 use clap::error::ErrorKind;
 use clap::{ArgMatches, Command, FromArgMatches};
 use elasticsearch::http::response::Response;
 use elasticsearch::http::transport::Transport;
 
-pub fn commands() -> [Command; 1] {
-    [Dump::new_command()]
+pub fn commands() -> [Command; 2] {
+    [Dump::new_command(), Load::new_command()]
 }
 
 pub async fn run_command(
@@ -36,6 +38,12 @@ pub async fn run_command(
     match matches.subcommand() {
         Some(("dump", sub_matches)) => {
             Dump::from_arg_matches(sub_matches)
+                .expect("argument parsing failed")
+                .execute(transport, timeout)
+                .await
+        }
+        Some(("load", sub_matches)) => {
+            Load::from_arg_matches(sub_matches)
                 .expect("argument parsing failed")
                 .execute(transport, timeout)
                 .await
