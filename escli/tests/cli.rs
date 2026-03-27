@@ -432,6 +432,200 @@ async fn binary_response_bytes_are_not_utf8_encoded() {
     );
 }
 
+// --- utils dump --------------------------------------------------------------
+
+const PIT_OK: &str = r#"{"id":"test-pit-id"}"#;
+const EMPTY_SEARCH: &str = r#"{"pit_id":"test-pit-id","hits":{"hits":[]}}"#;
+const ONE_DOC_SEARCH: &str = r#"{"pit_id":"test-pit-id","hits":{"hits":[{"_source":{"field":"value"},"sort":[1]}]}}"#;
+
+#[tokio::test]
+async fn dump_opens_pit_and_calls_search() {
+    let server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/my-index/_pit"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(PIT_OK))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    // Dump always makes an initial search + one pagination check before breaking.
+    Mock::given(method("POST"))
+        .and(path("/_search"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(EMPTY_SEARCH))
+        .expect(2)
+        .mount(&server)
+        .await;
+
+    escli(&server)
+        .args(["utils", "dump", "my-index"])
+        .assert()
+        .success();
+
+    server.verify().await;
+}
+
+#[tokio::test]
+async fn dump_writes_ndjson_to_stdout() {
+    let server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/my-index/_pit"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(PIT_OK))
+        .mount(&server)
+        .await;
+
+    // Wiremock is FIFO: first-mounted mock has highest priority.
+    // One-doc response fires once (initial search), then falls through to empty (pagination check).
+    Mock::given(method("POST"))
+        .and(path("/_search"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(ONE_DOC_SEARCH))
+        .up_to_n_times(1)
+        .mount(&server)
+        .await;
+
+    Mock::given(method("POST"))
+        .and(path("/_search"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(EMPTY_SEARCH))
+        .mount(&server)
+        .await;
+
+    let output = escli(&server)
+        .args(["utils", "dump", "my-index"])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains(r#"{"index":{"_index":"my-index"}}"#), "missing action line");
+    assert!(stdout.contains(r#"{"field":"value"}"#), "missing document");
+}
+
+#[tokio::test]
+async fn dump_paginates_until_empty() {
+    let server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/my-index/_pit"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(PIT_OK))
+        .mount(&server)
+        .await;
+
+    // Two pages of results (FIFO: fires first), then falls through to empty.
+    Mock::given(method("POST"))
+        .and(path("/_search"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(ONE_DOC_SEARCH))
+        .up_to_n_times(2)
+        .mount(&server)
+        .await;
+
+    // Fallback: empty (stops pagination).
+    Mock::given(method("POST"))
+        .and(path("/_search"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(EMPTY_SEARCH))
+        .mount(&server)
+        .await;
+
+    let output = escli(&server)
+        .args(["utils", "dump", "my-index"])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    // 2 pages × (1 action line + 1 doc line) = 4 lines
+    assert_eq!(stdout.lines().count(), 4, "expected 4 NDJSON lines for 2 pages");
+}
+
+#[tokio::test]
+async fn dump_output_to_file() {
+    let server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/my-index/_pit"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(PIT_OK))
+        .mount(&server)
+        .await;
+
+    Mock::given(method("POST"))
+        .and(path("/_search"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(ONE_DOC_SEARCH))
+        .up_to_n_times(1)
+        .mount(&server)
+        .await;
+
+    Mock::given(method("POST"))
+        .and(path("/_search"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(EMPTY_SEARCH))
+        .mount(&server)
+        .await;
+
+    let dir = tempfile::TempDir::new().unwrap();
+    let out = dir.path().join("dump.ndjson");
+
+    escli(&server)
+        .args(["utils", "dump", "my-index", "--output", out.to_str().unwrap()])
+        .assert()
+        .success()
+        .stdout("");  // nothing on stdout when writing to file
+
+    let contents = std::fs::read_to_string(&out).unwrap();
+    assert!(contents.contains(r#"{"index":{"_index":"my-index"}}"#));
+    assert!(contents.contains(r#"{"field":"value"}"#));
+}
+
+#[tokio::test]
+async fn dump_multiple_indices_opens_pit_for_each() {
+    let server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/index1/_pit"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(PIT_OK))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    Mock::given(method("POST"))
+        .and(path("/index2/_pit"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(PIT_OK))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    Mock::given(method("POST"))
+        .and(path("/_search"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(EMPTY_SEARCH))
+        .mount(&server)
+        .await;
+
+    escli(&server)
+        .args(["utils", "dump", "index1,index2"])
+        .assert()
+        .success();
+
+    server.verify().await;
+}
+
+#[tokio::test]
+async fn dump_pit_failure_skips_index() {
+    let server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/bad-index/_pit"))
+        .respond_with(ResponseTemplate::new(404).set_body_string(r#"{"error":"index not found"}"#))
+        .mount(&server)
+        .await;
+
+    let output = escli(&server)
+        .args(["utils", "dump", "bad-index"])
+        .output()
+        .unwrap();
+
+    // Should exit 0 and produce no documents — the index is skipped gracefully.
+    assert!(output.status.success());
+    assert!(output.stdout.is_empty());
+}
+
 // --- utils load --------------------------------------------------------------
 
 const BULK_OK: &str = r#"{"errors":false,"items":[{"index":{"status":200}}]}"#;
