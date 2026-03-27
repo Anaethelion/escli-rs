@@ -125,6 +125,7 @@ jobs:
 
   manifest:
     needs: build
+    if: always() && needs.build.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: read
