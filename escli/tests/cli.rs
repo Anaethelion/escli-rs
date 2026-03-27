@@ -436,7 +436,7 @@ async fn binary_response_bytes_are_not_utf8_encoded() {
 
 const PIT_OK: &str = r#"{"id":"test-pit-id"}"#;
 const EMPTY_SEARCH: &str = r#"{"pit_id":"test-pit-id","hits":{"hits":[]}}"#;
-const ONE_DOC_SEARCH: &str = r#"{"pit_id":"test-pit-id","hits":{"hits":[{"_source":{"field":"value"},"sort":[1]}]}}"#;
+const ONE_DOC_SEARCH: &str = r#"{"pit_id":"test-pit-id","hits":{"hits":[{"_id":"doc1","_source":{"field":"value"},"sort":[1]}]}}"#;
 
 #[tokio::test]
 async fn dump_opens_pit_and_calls_search() {
@@ -658,6 +658,40 @@ async fn dump_skip_index_name_omits_index_from_action() {
     let stdout = String::from_utf8(output.stdout).unwrap();
     assert!(stdout.contains(r#"{"index":{}}"#), "action line should have no _index");
     assert!(!stdout.contains("_index"), "should not contain _index at all");
+}
+
+#[tokio::test]
+async fn dump_add_id_includes_id_in_action() {
+    let server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/my-index/_pit"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(PIT_OK))
+        .mount(&server)
+        .await;
+
+    Mock::given(method("POST"))
+        .and(path("/_search"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(ONE_DOC_SEARCH))
+        .up_to_n_times(1)
+        .mount(&server)
+        .await;
+
+    Mock::given(method("POST"))
+        .and(path("/_search"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(EMPTY_SEARCH))
+        .mount(&server)
+        .await;
+
+    let output = escli(&server)
+        .args(["utils", "dump", "my-index", "--add-id"])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains(r#""_id":"doc1""#), "action line should contain _id");
+    assert!(stdout.contains(r#""_index":"my-index""#), "action line should still contain _index");
 }
 
 // --- utils load --------------------------------------------------------------
