@@ -262,7 +262,7 @@ impl Dump {
             let initial_pit = match pit_response.json::<PointInTimeVariant>().await? {
                 PointInTimeVariant::Success(pit) => pit,
                 PointInTimeVariant::Error(err) => {
-                    eprintln!("Error opening PIT for index '{}': {:?}", index, err);
+                    eprintln!("Error opening PIT for index '{}': {}", index, err);
                     continue;
                 }
             };
@@ -282,7 +282,7 @@ impl Dump {
                 SearchResultsVariant::Success(docs) => docs,
                 SearchResultsVariant::Error(err) => {
                     eprintln!(
-                        "Error during initial search for index '{}': {:?}",
+                        "Error during initial search for index '{}': {}",
                         index, err
                     );
                     continue;
@@ -320,7 +320,7 @@ impl Dump {
                     match search_response.json::<SearchResultsVariant>().await? {
                         SearchResultsVariant::Success(docs) => docs,
                         SearchResultsVariant::Error(err) => {
-                            eprintln!("Error during search after for index '{}': {:?}", index, err);
+                            eprintln!("Error during search after for index '{}': {}", index, err);
                             break;
                         }
                     };
