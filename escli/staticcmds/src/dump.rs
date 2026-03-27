@@ -57,6 +57,12 @@ pub struct Dump {
 
     #[arg(short, long, help = "Output file location, default is stdout")]
     output: Option<PathBuf>,
+
+    #[arg(
+        long,
+        help = "Omit the index name from action lines (produces {\"index\":{}} instead of {\"index\":{\"_index\":\"...\"}})"
+    )]
+    skip_index_name: bool,
 }
 
 #[derive(Deserialize, Debug)]
@@ -275,7 +281,7 @@ impl Dump {
                 }
             };
 
-            persist_ndjson(&initial_documents, index, &mut output).await?;
+            persist_ndjson(&initial_documents, index, self.skip_index_name, &mut output).await?;
 
             let mut next_pit = initial_documents.pit_id;
             let mut next_search_after = initial_documents
@@ -312,7 +318,7 @@ impl Dump {
                 if documents.hits.hits.is_empty() {
                     break;
                 } else {
-                    persist_ndjson(&documents, index, &mut output).await?;
+                    persist_ndjson(&documents, index, self.skip_index_name, &mut output).await?;
                 }
 
                 next_pit = documents.pit_id;
@@ -354,10 +360,15 @@ impl Dump {
 async fn persist_ndjson(
     result: &SearchResult,
     index: &str,
+    skip_index_name: bool,
     output: &mut (impl AsyncWrite + Unpin),
 ) -> Result<(), IoError> {
     for doc in result.hits.hits.iter() {
-        let action_line = json!({ "index": { "_index": index } });
+        let action_line = if skip_index_name {
+            json!({ "index": {} })
+        } else {
+            json!({ "index": { "_index": index } })
+        };
 
         let action_s =
             serde_json::to_string(&action_line).map_err(|e| IoError::new(IoErrorKind::Other, e))?;
@@ -400,11 +411,25 @@ mod tests {
     async fn test_persist_ndjson() {
         let search_result = create_sample_search_result();
         let mut output = Cursor::new(Vec::new());
-        persist_ndjson(&search_result, "test_index", &mut output).await.unwrap();
+        persist_ndjson(&search_result, "test_index", false, &mut output).await.unwrap();
         let output_str = String::from_utf8(output.into_inner()).unwrap();
         let expected_output = r#"{"index":{"_index":"test_index"}}
 {"field":"value1"}
 {"index":{"_index":"test_index"}}
+{"field":"value2"}
+"#;
+        assert_eq!(output_str, expected_output);
+    }
+
+    #[tokio::test]
+    async fn test_persist_ndjson_skip_index_name() {
+        let search_result = create_sample_search_result();
+        let mut output = Cursor::new(Vec::new());
+        persist_ndjson(&search_result, "test_index", true, &mut output).await.unwrap();
+        let output_str = String::from_utf8(output.into_inner()).unwrap();
+        let expected_output = r#"{"index":{}}
+{"field":"value1"}
+{"index":{}}
 {"field":"value2"}
 "#;
         assert_eq!(output_str, expected_output);
@@ -424,7 +449,7 @@ mod tests {
             },
         };
         let mut output = Cursor::new(Vec::new());
-        persist_ndjson(&result, "test_index", &mut output).await.unwrap();
+        persist_ndjson(&result, "test_index", false, &mut output).await.unwrap();
         let output_str = String::from_utf8(output.into_inner()).unwrap();
         let lines: Vec<&str> = output_str.lines().collect();
         assert_eq!(lines.len(), 20_000); // Each document has an action line
@@ -456,8 +481,8 @@ mod tests {
         };
 
         let mut output = Cursor::new(Vec::new());
-        persist_ndjson(&search_result1, "index1", &mut output).await.unwrap();
-        persist_ndjson(&search_result2, "index2", &mut output).await.unwrap();
+        persist_ndjson(&search_result1, "index1", false, &mut output).await.unwrap();
+        persist_ndjson(&search_result2, "index2", false, &mut output).await.unwrap();
         let output_str = String::from_utf8(output.into_inner()).unwrap();
         let expected_output = r#"{"index":{"_index":"index1"}}
 {"field":"value1"}
