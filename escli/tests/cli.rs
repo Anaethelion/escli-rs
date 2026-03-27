@@ -626,6 +626,40 @@ async fn dump_pit_failure_skips_index() {
     assert!(output.stdout.is_empty());
 }
 
+#[tokio::test]
+async fn dump_skip_index_name_omits_index_from_action() {
+    let server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/my-index/_pit"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(PIT_OK))
+        .mount(&server)
+        .await;
+
+    Mock::given(method("POST"))
+        .and(path("/_search"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(ONE_DOC_SEARCH))
+        .up_to_n_times(1)
+        .mount(&server)
+        .await;
+
+    Mock::given(method("POST"))
+        .and(path("/_search"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(EMPTY_SEARCH))
+        .mount(&server)
+        .await;
+
+    let output = escli(&server)
+        .args(["utils", "dump", "my-index", "--skip-index-name"])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains(r#"{"index":{}}"#), "action line should have no _index");
+    assert!(!stdout.contains("_index"), "should not contain _index at all");
+}
+
 // --- utils load --------------------------------------------------------------
 
 const BULK_OK: &str = r#"{"errors":false,"items":[{"index":{"status":200}}]}"#;
