@@ -84,7 +84,7 @@ struct PontInTime {
 #[serde(untagged)]
 enum PointInTimeVariant {
     Success(PontInTime),
-    Error(Box<ElasticsearchError>),
+    Error(Value),
 }
 
 #[derive(Deserialize, Debug)]
@@ -97,7 +97,7 @@ struct SearchResult {
 #[serde(untagged)]
 enum SearchResultsVariant {
     Success(SearchResult),
-    Error(Box<ElasticsearchError>),
+    Error(Value),
 }
 
 #[derive(Deserialize, Debug)]
@@ -147,48 +147,6 @@ impl AsyncWrite for Output {
     }
 }
 
-#[derive(Deserialize, Debug)]
-#[allow(dead_code)]
-struct CausedBy {
-    r#type: String,
-    reason: String,
-    caused_by: RootCause,
-}
-
-#[derive(Deserialize, Debug)]
-#[allow(dead_code)]
-struct FailedShard {
-    shard: i64,
-    index: String,
-    node: String,
-    reason: RootCause,
-}
-
-#[derive(Deserialize, Debug)]
-#[allow(dead_code)]
-struct RootCause {
-    r#type: String,
-    reason: String,
-}
-
-#[derive(Deserialize, Debug)]
-#[allow(dead_code)]
-struct EsError {
-    root_cause: Vec<RootCause>,
-    r#type: String,
-    reason: String,
-    phase: String,
-    grouped: bool,
-    failed_shards: Vec<FailedShard>,
-    caused_by: CausedBy,
-}
-
-#[derive(Deserialize, Debug)]
-#[allow(dead_code)]
-struct ElasticsearchError {
-    error: EsError,
-    status: i64,
-}
 
 impl Dump {
     pub fn new_command() -> Command {
@@ -304,7 +262,7 @@ impl Dump {
             let initial_pit = match pit_response.json::<PointInTimeVariant>().await? {
                 PointInTimeVariant::Success(pit) => pit,
                 PointInTimeVariant::Error(err) => {
-                    eprintln!("Error opening PIT for index '{}': {:?}", index, err);
+                    eprintln!("Error opening PIT for index '{}': {}", index, err);
                     continue;
                 }
             };
@@ -320,16 +278,25 @@ impl Dump {
                 .send()
                 .await?;
 
-            let initial_documents = match initial_search.json::<SearchResultsVariant>().await? {
+            let initial_bytes = initial_search.bytes().await?;
+            let initial_documents = match serde_json::from_slice::<SearchResultsVariant>(&initial_bytes)
+                .map_err(|e| IoError::new(IoErrorKind::InvalidData, e))?
+            {
                 SearchResultsVariant::Success(docs) => docs,
                 SearchResultsVariant::Error(err) => {
                     eprintln!(
-                        "Error during initial search for index '{}': {:?}",
+                        "Error during initial search for index '{}': {}",
                         index, err
                     );
                     continue;
                 }
             };
+
+            if initial_documents.hits.hits.is_empty() {
+                output.write_all(&initial_bytes).await?;
+                output.flush().await?;
+                continue;
+            }
 
             persist_ndjson(&initial_documents, index, self.skip_index_name, self.add_id, &mut output).await?;
 
@@ -342,13 +309,15 @@ impl Dump {
                 .copied();
 
             loop {
-                let payload = json!({
+                let mut payload = json!({
                     "size": self.size,
                     "pit": { "id": next_pit, "keep_alive": self.keep_alive },
                     "query": query,
-                    "sort": [{ "_shard_doc": { "order": "asc" } }],
-                    "search_after": next_search_after.map(|x| vec![x]).unwrap_or_default()
+                    "sort": [{ "_shard_doc": { "order": "asc" } }]
                 });
+                if let Some(sa) = next_search_after {
+                    payload["search_after"] = json!([sa]);
+                }
 
                 let search_response = client
                     .search(SearchParts::None)
@@ -360,7 +329,7 @@ impl Dump {
                     match search_response.json::<SearchResultsVariant>().await? {
                         SearchResultsVariant::Success(docs) => docs,
                         SearchResultsVariant::Error(err) => {
-                            eprintln!("Error during search after for index '{}': {:?}", index, err);
+                            eprintln!("Error during search after for index '{}': {}", index, err);
                             break;
                         }
                     };
